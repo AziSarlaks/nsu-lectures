@@ -1,8 +1,14 @@
 
- 
 
-int main() {
-    
-    
-    return 0; 
+
+
+
+
+
+ 
+        } else if ((*inComment) && i + 1 < length && line[i] == '*' && line[i + 1] == '/') {
+            *inComment = false; 
+            i += 2;
+            continue;
 }
+*/

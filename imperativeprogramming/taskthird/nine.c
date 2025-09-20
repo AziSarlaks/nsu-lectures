@@ -13,7 +13,14 @@ int main() {
     // f = 4 - after '*' end of multi line comment
     while (1) {
         if (scanf("%c", &curr) != 1) {
+            if (f == 1) {
+                printf("%c", '/');
+            }
             break;
+        } 
+        if (f == 1 && curr != '*' && curr != '/') {
+            printf("%c%c", '/', curr);
+            f = 0;
         } else {
             if (curr == '/' && f == 0) {
                 f = 1;
@@ -34,6 +41,7 @@ int main() {
                 f = 3;
             } else if (f == 1) {
                 f = 0;
+                printf("%d", curr);
             } else if (f == 0) {
                 printf("%c", curr);
             }
