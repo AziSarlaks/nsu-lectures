@@ -33,15 +33,12 @@ int main() {
                 printf("\n");
             } else if (curr == '\n' && f == 3) {
                 printf("\n");
-            } else if (curr == '*' && f == 3) {
+            } else if (curr == '*' && (f == 3 || f == 4)) {
                 f = 4;
             } else if (curr == '/' && f == 4) {
                 f = 0;
-            } else if (f == 4) {
+            } else if (f == 4 && curr != '/' && curr != '*') {
                 f = 3;
-            } else if (f == 1) {
-                f = 0;
-                printf("%d", curr);
             } else if (f == 0) {
                 printf("%c", curr);
             }
