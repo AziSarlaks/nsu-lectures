@@ -4,22 +4,27 @@
 int main() {
     freopen("input.txt", "r", stdin);
     freopen("output.txt", "w", stdout);
-    char strs[1001][1001];
     int len = 0;
-    int wn = 0;
-    for (int i = 0; i < 1001; i++) {
-        for (int j = 0; j < 1001; j++) {
-            if (scanf("%c", &strs[i][j]) != 1) {
-                break;
+    char str[1001];
+    if (fgets(str, 1001, stdin)) {
+        char *p = str;
+        while (*p) {
+            while (*p == ' ') p++;
+            if (!*p) break;
+
+            char *s = p;
+            len = 0;
+            while (*p && *p != ' ') {
+                len++;
+                p++;
             }
-            if (strs[i][j] == ' ') {
-                
+            if (len == 1) {
+                printf("%c ", *s);
+            } else if (len == 2) {
+                printf("%c0%c ", *s, *(s + 1));
+            } else if (len > 2) {
+                printf("%c%d%c ", *s, len - 2, *(s + len - 1));
             }
-            len += 1;
         }
     }
-    if (len == 1) {
-        printf("%c", strs[0]);
-    }
-    printf("%d", len);
 }
