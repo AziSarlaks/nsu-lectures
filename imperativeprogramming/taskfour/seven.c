@@ -8,13 +8,15 @@ int main() {
     int len = 0;
     int wn = 0;
     for (int i = 0; i < 1001; i++) {
-        if (scanf("%c", &strs[0][i]) != 1) {
-            break;
+        for (int j = 0; j < 1001; j++) {
+            if (scanf("%c", &strs[i][j]) != 1) {
+                break;
+            }
+            if (strs[i][j] == ' ') {
+                
+            }
+            len += 1;
         }
-        if (strs[0][i] == ' ') {
-            
-        }
-        len += 1;
     }
     if (len == 1) {
         printf("%c", strs[0]);
