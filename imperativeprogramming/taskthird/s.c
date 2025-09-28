@@ -1,30 +1,31 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
 int main() {
     freopen("input.txt", "r", stdin);
     freopen("output.txt", "w", stdout);
-    char s[7];
-    scanf("%s", s);
+    int n;
+    scanf("%d", &n);
+    int nums[n];
+    int sum = 0;
+    int count = 0;
+    for (int i = 0; i < n; i++) {
+        scanf("%d", &nums[i]);
+    }
     fclose(stdin);
-    int r = 0, g = 0, b = 0;
-    int f = 0;
-    char isx[] = "GHIJKLMNOPQRSTUVWXYZghijklmnopqrstuvwxyz";
-    for (int i = 0; i < 6; i++) {
-        if (strchr(isx, s[i]) != NULL) {
-            f = 1;
-            break;
+
+    for (int k = 1; k <= n; k++) {
+        sum = 0;
+        for (int i = k-1; i < n; i+=k) {
+            sum += nums[i];
+        }
+        if (k == n) {
+            printf("%d", sum);
+        } else {
+            printf("%d\n", sum);
         }
     }
-    if (strlen(s) == 6 && f == 0) {
-        r = strtol((const char[]){s[0], s[1], '\0'}, NULL, 16);
-        g = strtol((const char[]){s[2], s[3], '\0'}, NULL, 16);
-        b = strtol((const char[]){s[4], s[5], '\0'}, NULL, 16);
-        printf("%d %d %d", r, g, b);
-    } else {
-        printf("-1 -1 -1");
-    }
+
     fclose(stdout);
     return 0;
 }

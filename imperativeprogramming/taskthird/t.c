@@ -1,39 +1,54 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
+
+void quicksort(int arr[], int left, int right) {
+        if (left >= right) return;
+        int p = arr[right];
+        int i = left - 1;
+        for (int j = left; j < right; j++) {
+            if (arr[j] < p) {
+                i++;
+                int tmp = arr[i];
+                arr[i] = arr[j];
+                arr[j] = tmp;
+            }
+        }
+        int tmp = arr[i + 1];
+        arr[i + 1] = arr[right];
+        arr[right] = tmp;
+        quicksort(arr, left, i);
+        quicksort(arr, i + 2, right);
+}
 
 int main() {
     freopen("input.txt", "r", stdin);
     freopen("output.txt", "w", stdout);
     int n;
     scanf("%d", &n);
-    float negc = 0, zeroc = 0, pozc = 0;
-    double neg, zero, poz;
-    for (int i = 0; i<n; i++) {
-        int l;
-        scanf("%d", &l);
-        if (l < 0) {
-            negc += 1;
-        } else if (l == 0) {
-            zeroc += 1;
-        } else if (l > 0) {
-            pozc += 1;
+    int nums[n];
+    for (int i = 0; i < n; i++) {
+        scanf("%d", &nums[i]);
+    }
+    
+    fclose(stdin);
+    quicksort(nums, 0, n - 1);
+
+    int curr = nums[0];
+    int count = 1;
+
+    for (int i = 1; i <= n; i++) {
+        if (nums[i] == curr) {
+            count++;
+        } else {
+            if (i != n) {
+                printf("%d: %d\n", curr, count);
+            } else {
+                printf("%d: %d", curr, count);
+            }
+            curr = nums[i];
+            count = 1;
         }
     }
-    fclose(stdin);
-    neg = negc/n;
-    zero = zeroc/n;
-    poz = pozc/n;
-    // poz *= 100000;
-    // zero *= 100000;
-    // neg *= 100000;
-    // int res1 = (int)neg;
-    // int res2 = (int)zero;
-    // int res3 = (int)poz;
-    // neg = res1 / 100000.0;
-    // zero = res2 / 100000.0;
-    // poz = res3 / 100000.0;
-    printf("%0.5lf %0.5lf %0.5lf", neg, zero, poz);
     fclose(stdout);
     return 0;
 }

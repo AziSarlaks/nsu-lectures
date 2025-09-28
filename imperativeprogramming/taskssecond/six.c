@@ -4,27 +4,29 @@
 
 int main() {
     freopen("input.txt", "r", stdin);
-    int n;
-    scanf("%d", &n);
-    int min = 100000, imin = 0, max = -100000, imax = 0;
-    for (int i = 0; i<n; i++) {
-        int l;
-        scanf("%d", &l);
-        if (l < min) {
-            min = l;
-            imin = i+1;
-        }
-        if (l > max) {
-            max = l;
-            imax = i+1;
+    freopen("output.txt", "w", stdout);
+    int s, f, c;
+    int res = 0;
+    scanf("%d %d %d", &s, &f, &c);
+    for (int i = s; i <= f-c+1; i++) {
+        for (int j = 1; j <= f-s; j++) {
+            int temp = i;
+            int count = 1;
+            while (temp < f) {
+                temp += j;
+                if (temp <= f) {
+                    count++;
+                }
+            }
+            if (count == c) {
+                res += 1;
+            } else if (count < c) {
+                break;
+            }
         }
     }
-    
-
+    printf("%d", res);
     fclose(stdin);
-    
-    freopen("output.txt", "w", stdout);
-    printf("%d %d %d %d", min, imin, max, imax);
     fclose(stdout);
     return 0;
 }

@@ -1,20 +1,34 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
+#include <math.h>
 
 int main() {
-    char tnum1[3], tnum2[3];
-    int num1, num2, divis;
-    float avg;
-
-    scanf("%s %s", tnum1, tnum2);
-    num1 = atoi(tnum1);
-    num2 = atoi(tnum2);
-    if (num2 != 0) {
-        divis = num1 / num2;
-        avg = (num1 + num2) / 2.00;
-
-        printf("%d\n", divis);
-        printf("%.2f\n", avg);
+    freopen("input.txt", "r", stdin);
+    bool issimple = true;
+    int num;
+    int res = 0;
+    scanf("%d", &num);
+    if (num <= 1) {
+        issimple = false;
+    } else {
+        for (int i = 2; i<=floor(num/2.0); i++) {
+            if (num % i == 0) {
+                issimple = false;
+                break;
+            }
+        }
     }
-    return 0;
+    fclose(stdin);
+    if (issimple) {
+        freopen("output.txt", "w", stdout);
+        printf("YES");
+        fclose(stdout);
+        return 0;
+    } else {
+        freopen("output.txt", "w", stdout);
+        printf("NO");
+        fclose(stdout);
+        return 0;
+    }
 }

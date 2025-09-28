@@ -3,47 +3,31 @@
 int main() {
     freopen("input.txt", "r", stdin);
     freopen("output.txt", "w", stdout);
-    int a1, a2, b1, b2, c1, c2;
-    scanf("%d %d %d %d %d %d", &a1, &a2, &b1, &b2, &c1, &c2);
+    int n;
+    scanf("%d", &n);
+    int arr[100000];
+    for (int i = 0; i < n; i++) {
+        scanf("%d", &arr[i]);
+    }
     fclose(stdin);
-    if (a1 < a2) {
-        int temp = a1;
-        a1 = a2;
-        a2 = temp;
-    }
-    if (b1 < b2) {
-        int temp = b1;
-        b1 = b2;
-        b2 = temp;
-    }
-    if (c1 < c2) {
-        int temp = c1;
-        c1 = c2;
-        c2 = temp;
-    }
-    if (a1*a2 >= (b1*b2 + c1*c2)) {
-        if (a1 >= b1 && a1 >= c1 && a2 >= b2+c2) {
-            printf("YES");
-            fclose(stdout);
-        } else if (a1 >= b1+c1 && a2 >= b2 && a2 >= c2) {
-            printf("YES");
-            fclose(stdout);
-        } else if (a1 >= b1+c2 && a2 >= b2 && a2 >= c1) {
-            printf("YES");
-            fclose(stdout);
-        } else if (a1 >= b2+c1 && a2 >= b1 && a2 >= c2) {
-            printf("YES");
-            fclose(stdout);
-        } else if (a1 >= b2+c2 && a2 >= b1 && a2 >= c1) {
-            printf("YES");
-            fclose(stdout);
+    int max_sum = arr[0], cur_sum = arr[0];
+    int l = 0, r = 0, temp_l = 0;
+
+    for (int i = 1; i < n; i++) {
+        if (cur_sum < 0) {
+            cur_sum = arr[i];
+            temp_l = i;
         } else {
-            printf("NO");
-            fclose(stdout);
+            cur_sum += arr[i];
         }
-    } else {
-        printf("NO");
-        fclose(stdout);
+        if (cur_sum > max_sum) {
+            max_sum = cur_sum;
+            l = temp_l;
+            r = i;
+        }
     }
+
+    printf("%d %d %d\n", l, r, max_sum);
+    fclose(stdout);
     return 0;
 }

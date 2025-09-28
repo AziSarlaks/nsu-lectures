@@ -4,29 +4,36 @@
 
 int main() {
     freopen("input.txt", "r", stdin);
-    int a, b;
-    float res1, res2, res3;
-    int res4;
-    scanf("%d %d", &a, &b);
-    float fa = a, fb = b;
-
-    res1 = floor(fa/fb);
-    res2 = ceil(fa/fb);
-    res3 = a/b;
-    if (a >= 0) {
-        res4 = a%b;
-    } else {
-        res4 = a - b*(floor(fa/fb));
-    }
-    if (res1 == -0) res1 = 0;
-    if (res2 == -0) res2 = 0;
-    if (res3 == -0) res3 = 0;
-    if (res4 == -0) res4 = 0;
-
-    fclose(stdin);
-    
     freopen("output.txt", "w", stdout);
-    printf("%.f %.f %.f %d", res1, res2, res3, res4);
+    int n;
+    scanf("%d\n", &n);
+    int temp = 0;
+    int tempi = 0;
+    for (int i = 0; i<n; i++) {
+        char numc;
+        scanf("%c", &numc);
+        if (i == (n-1)) {
+            if (numc == '1') {
+                temp += pow(2, tempi);
+            }
+            printf("%d", temp);
+        } else if (tempi == 7 && i != n) {
+            if (numc == '1') {
+                temp += pow(2, tempi);
+            }
+            tempi = 0;
+            printf("%d ", temp);
+            temp = 0;
+        } else {
+            if (numc == '1') {
+                temp += pow(2, tempi);
+                tempi+=1;
+            } else {
+                tempi+=1;
+            }
+        }
+    }
+    fclose(stdin);
     fclose(stdout);
     return 0;
 }

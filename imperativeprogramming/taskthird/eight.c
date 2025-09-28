@@ -1,43 +1,44 @@
 #include <stdio.h>
-#include <stdlib.h>
-
-int dim(int month, int year) {
-    if (month == 2) {
-        if ((year % 400 == 0) || (year % 4 == 0 && year % 100 != 0))
-            return 29;
-        else
-            return 28;
-    }
-    if (month == 4 || month == 6 || month == 9 || month == 11)
-        return 30;
-    return 31;
-}
 
 int main() {
     freopen("input.txt", "r", stdin);
     freopen("output.txt", "w", stdout);
-    int day, month, year, add;
-    scanf("%d %d %d %d", &day, &month, &year, &add);
-    fclose(stdin);
-
-    while (add > 0) {
-        int dimd = dim(month, year);
-        int lim = dimd - day + 1;
-        if (add < lim) {
-            day += add;
-            add = 0;
-        } else {
-            add -= lim;
-            day = 1;
-            month++;
-            if (month > 12) {
-                month = 1;
-                year++;
-            }
-        }
+    int n;
+    scanf("%d", &n);
+    int height[n];
+    for (int i = 0; i < n; i++) {
+        scanf("%d", &height[i]);
     }
 
-    printf("%d %d %d", day, month, year);
-    fclose(stdout);
-    return 0;
+    int left_max[n], right_max[n];
+    left_max[0] = height[0];
+    for (int i = 1; i < n; i++) {
+        if (height[i] > left_max[i-1]) {
+            left_max[i] = height[i];
+        } else {
+            left_max[i] = left_max[i-1];
+        }    
+    }
+    right_max[n-1] = height[n-1];
+    for (int i = n-2; i >= 0; i--) {
+        if (height[i] > right_max[i+1]) {
+            right_max[i] = height[i];
+        } else {
+            right_max[i] = right_max[i+1];
+        }    
+    }
+
+    long long water = 0;
+    for (int i = 0; i < n; i++) {
+        int min_lr;
+        if (left_max[i] < right_max[i]) {
+            min_lr = left_max[i];
+        } else {
+            min_lr = right_max[i];
+        }        
+        if (min_lr > height[i]) {
+            water += min_lr - height[i];
+        }
+    }
+    printf("%lld\n", water);
 }

@@ -1,25 +1,43 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-int main() {
-    FILE *f = freopen("input.txt", "r", stdin);
-    if (f == NULL) {
-        printf("%s", "FILE DOES NOT EXIST");
-        return 1;
+int dim(int month, int year) {
+    if (month == 2) {
+        if ((year % 400 == 0) || (year % 4 == 0 && year % 100 != 0))
+            return 29;
+        else
+            return 28;
     }
-    int hour, minute, second, add;
-    scanf("%d %d %d %d", &hour, &minute, &second, &add);
-    int m = hour * 3600 + minute * 60 + second + add;
-    second = m % 60;
-    m = m % 86400;
-    int h = m / 3600;
-    m = m % 3600;
-    m /= 60;
+    if (month == 4 || month == 6 || month == 9 || month == 11)
+        return 30;
+    return 31;
+}
 
-    fclose(f);
-    
-    f = freopen("output.txt", "w", stdout);
-    printf("%d %d %d", h, m, second);
-    fclose(f);
+int main() {
+    freopen("input.txt", "r", stdin);
+    freopen("output.txt", "w", stdout);
+    int day, month, year, add;
+    scanf("%d %d %d %d", &day, &month, &year, &add);
+    fclose(stdin);
+
+    while (add > 0) {
+        int dimd = dim(month, year);
+        int lim = dimd - day + 1;
+        if (add < lim) {
+            day += add;
+            add = 0;
+        } else {
+            add -= lim;
+            day = 1;
+            month++;
+            if (month > 12) {
+                month = 1;
+                year++;
+            }
+        }
+    }
+
+    printf("%d %d %d", day, month, year);
+    fclose(stdout);
     return 0;
 }
