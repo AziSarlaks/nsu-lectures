@@ -1,8 +1,1 @@
-Line 1 has 30 chars: 24 are letters (23 lower, 1 upper), 0 are digits.
-Line 2 has 33 chars: 22 are letters (22 lower, 0 upper), 0 are digits.
-Line 3 has 27 chars: 18 are letters (17 lower, 1 upper), 0 are digits.
-Line 4 has 13 chars: 7 are letters (7 lower, 0 upper), 0 are digits.
-Line 5 has 30 chars: 21 are letters (20 lower, 1 upper), 0 are digits.
-Line 6 has 12 chars: 6 are letters (6 lower, 0 upper), 1 are digits.
-Line 7 has 29 chars: 19 are letters (19 lower, 0 upper), 1 are digits.
-Line 8 has 1 chars: 0 are letters (0 lower, 0 upper), 0 are digits.
+4/4 AZLK

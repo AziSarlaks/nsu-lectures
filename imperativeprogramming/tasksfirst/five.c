@@ -17,7 +17,6 @@ int main() {
         res4 = a%b;
     } else {
         res4 = a - b*(floor(fa/fb));
-        res4 = a%b + b;
     }
     // if (res1 == -0) res1 = 0;
     // if (res2 == -0) res2 = 0;
