@@ -45,7 +45,7 @@ int main() {
         
         if (buffer[0] == '\0') {
             printf("\n");
-            return 0; 
+            return 0;
         }
         
         
