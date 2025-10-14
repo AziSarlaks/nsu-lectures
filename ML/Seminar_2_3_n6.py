@@ -1,11 +1,21 @@
 n = int(input())
-r = []
-s = 0
+c = 0
+cn = 0
+nick = []
 for i in range(n):
-    r.append(list(map(int, input().split())))
-for i in r:
-    s = 0
-    for j in i:
-        if j > sum(i)/len(i):
-            s+=1
-    print(s)
+    x = input()
+    if x.split(': ')[1] == "Correct" and x not in nick:
+        c+=1
+        cn+=1
+        nick.append(x)
+    elif x.split(': ')[1] == "Correct" and x in nick:
+        cn+=1
+    elif x not in nick:
+        nick.append(x)
+print(cn)
+p = round(cn / n * 100)
+if c != 0:
+    print(f"Верно решили {c} учащихся")
+    print(f"Из всех попыток {p}% верных")
+else:
+    print("Вы можете стать первым, кто решит эту задачу")
