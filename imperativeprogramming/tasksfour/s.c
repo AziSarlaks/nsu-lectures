@@ -20,4 +20,5 @@ int main() {
         reverse(s, strlen(s));
         printf("%s\n", s);
     }
+    return 0;
 }

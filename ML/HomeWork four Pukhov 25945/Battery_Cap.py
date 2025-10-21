@@ -3,12 +3,11 @@ import re
 
 def molar_mass(formula):
     elements_dict = {}
-    F = 96485
     molar_mass = 0.0
 
     pattern = r'([A-Z][a-z]*)(\d*)'
     matches = re.findall(pattern, formula)
-    
+
     for element, count_str in matches:
         count = 1 if count_str == '' else int(count_str)
         if element in elements_dict:
@@ -23,7 +22,6 @@ def molar_mass(formula):
     return molar_mass
 
 
-
 def tc(formula, z_electrons):
 
     F = 96485 
@@ -32,4 +30,5 @@ def tc(formula, z_electrons):
     q = (z_electrons * F) / (3.6 * M)
 
     return q
-    
+
+molar_mass("Fe4Li2Fe2")
