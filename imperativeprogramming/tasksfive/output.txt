@@ -1,5 +1,7 @@
-names: total = 7
-names: long = 2
-ages: total = 7
-ages: adult = 3
-ages: kid = 2
+1
+1
+1
+1
+1
+1
+1
