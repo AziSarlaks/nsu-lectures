@@ -1,1 +1,6 @@
-..ko,.Privet:kreved,.,;ko:;,.
+struct 
+{ 
+    int x; 
+    int64_t **Y; 
+    char _temp1; 
+}; 
