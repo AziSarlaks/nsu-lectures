@@ -90,15 +90,15 @@ int main() {
                 double val;
                 scanf("%lf", &val);
                 double *where = (idx == -1 ? head : nodes[idx]);
-                nodes[count] = addBefore(where, val);
-                printf("%d\n", count);
+                nodes[count] = addAfter(where, val);
+                // printf("%d\n", count);
                 count++;
             } else if (type == -1) {
                 double val;
                 scanf("%lf", &val);
                 double *where = (idx == -1 ? head : nodes[idx]);
-                nodes[count] = addAfter(where, val);
-                printf("%d\n", count);
+                nodes[count] = addBefore(where, val);
+                // printf("%d\n", count);
                 count++;
             } else if (type == 0) {
                 double *what = nodes[idx];
