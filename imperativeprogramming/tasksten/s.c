@@ -34,7 +34,7 @@ int main() {
     int N;
     scanf("%d", &N);
 
-    DA* arrays = (DA*)malloc((1000000 + 1) * sizeof(DA));
+    DA* arrays = malloc((1000000 + 1) * sizeof(DA));
     
     for (int i = 0; i <= 1000000; i++) {
         init_array(&arrays[i]);
