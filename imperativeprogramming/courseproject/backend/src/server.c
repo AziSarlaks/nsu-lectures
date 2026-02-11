@@ -18,9 +18,14 @@ static int server_socket = -1;
 static pthread_t update_thread;
 static volatile int running = 1;
 static pthread_mutex_t data_mutex = PTHREAD_MUTEX_INITIALIZER;
-static char system_json[65536];
+
+// Увеличиваем буфер для JSON с GPU данными
+#define JSON_BUFFER_SIZE 65536
+static char system_json[JSON_BUFFER_SIZE];
+
 static CPUStats cpu_prev, cpu_curr;
 static CPUStats cores_prev[MAX_CORES], cores_curr[MAX_CORES];
+static GPUInfo gpu_info;
 static int cores_count = 0;
 
 void calculate_cpu_usage(CPUStats *prev, CPUStats *curr) {
@@ -59,6 +64,9 @@ void *update_data_thread(void *arg) {
         }
     }
     
+    // Читаем GPU данные при запуске
+    read_gpu_info(&gpu_info);
+    
     memcpy(&cpu_curr, &cpu_prev, sizeof(CPUStats));
     for (int i = 0; i < cores_count; i++) {
         memcpy(&cores_curr[i], &cores_prev[i], sizeof(CPUStats));
@@ -70,6 +78,7 @@ void *update_data_thread(void *arg) {
         // Чтение текущих данных
         read_cpu_stats(&cpu_curr, cores_curr, &cores_count);
         read_memory_info(&mem);
+        read_gpu_info(&gpu_info);  // Обновляем GPU данные
         get_processes(processes, &process_count);
         
         // Расчет использования CPU
@@ -78,11 +87,11 @@ void *update_data_thread(void *arg) {
             calculate_cpu_usage(&cores_prev[i], &cores_curr[i]);
         }
         
-        // Обновление JSON
+        // Обновление JSON с GPU данными
         pthread_mutex_lock(&data_mutex);
         format_system_info_json(system_json, sizeof(system_json),
                                &cpu_curr, cores_curr, cores_count,
-                               &mem, processes, process_count);
+                               &mem, &gpu_info, processes, process_count);
         pthread_mutex_unlock(&data_mutex);
         
         // Сохранение для следующей итерации
@@ -299,6 +308,7 @@ int start_server(int port) {
     printf("🌐 Network: http://%s:%d\n", get_local_ip(), port);
     printf("📊 API:     http://localhost:%d/api/system\n", port);
     printf("🏥 Health:  http://localhost:%d/api/health\n", port);
+    printf("🖥️  GPU:     Data collection enabled\n");
     printf("🛑 Press Ctrl+C to stop\n");
     printf("\n");
     

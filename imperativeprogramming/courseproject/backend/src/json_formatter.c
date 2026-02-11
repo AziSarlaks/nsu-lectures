@@ -82,41 +82,10 @@ static void json_escape_string(const char *input, char *output, int max_len) {
     output[j] = '\0';
 }
 
-// Альтернативная упрощенная функция - заменяет проблемные символы
-static void json_sanitize_string(const char *input, char *output, int max_len) {
-    if (!input || !output || max_len <= 0) {
-        if (output && max_len > 0) output[0] = '\0';
-        return;
-    }
-    
-    int i = 0, j = 0;
-    
-    while (input[i] && j < max_len - 1) {
-        unsigned char c = (unsigned char)input[i];
-        
-        // Экранируем двойные кавычки и обратные слеши
-        if (c == '"' || c == '\\') {
-            if (j + 2 < max_len) {
-                output[j++] = '\\';
-                output[j++] = c;
-            }
-        }
-        // Заменяем управляющие символы и непечатаемые символы на пробелы
-        else if (c < 32 || c > 126) {
-            output[j++] = ' ';
-        }
-        // Нормальные печатаемые символы
-        else {
-            output[j++] = c;
-        }
-        i++;
-    }
-    output[j] = '\0';
-}
-
 void format_system_info_json(char *buffer, int buffer_size, 
                             CPUStats *cpu, CPUStats *cores, int cores_count,
                             MemoryInfo *mem,
+                            GPUInfo *gpu,
                             ProcessInfo *processes, int process_count) {
     time_t now = time(NULL);
     
@@ -188,8 +157,21 @@ void format_system_info_json(char *buffer, int buffer_size,
         "    \"cached\": %llu,\n"
         "    \"percentage\": %.1f\n"
         "  },\n"
+        "  \"gpu\": {\n"
+        "    \"usage\": %.1f,\n"
+        "    \"memory\": {\n"
+        "      \"total\": %llu,\n"
+        "      \"used\": %llu\n"
+        "    },\n"
+        "    \"temperature\": %.1f,\n"
+        "    \"power\": %.1f,\n"
+        "    \"clock\": %lu,\n"
+        "    \"name\": \"%s\"\n"
+        "  },\n"
         "  \"processes\": [",
-        mem->total, mem->used, mem->free, mem->cached, mem->percentage);
+        mem->total, mem->used, mem->free, mem->cached, mem->percentage,
+        gpu->usage, gpu->memory_total, gpu->memory_used,
+        gpu->temperature, gpu->power, gpu->clock, gpu->name);
     
     if (written > 0) {
         offset += written;
@@ -212,9 +194,8 @@ void format_system_info_json(char *buffer, int buffer_size,
         char escaped_cmd[512];
         char escaped_name[256];
         
-        // Используем упрощенную очистку
-        json_sanitize_string(p->command_line, escaped_cmd, sizeof(escaped_cmd));
-        json_sanitize_string(p->name, escaped_name, sizeof(escaped_name));
+        json_escape_string(p->command_line, escaped_cmd, sizeof(escaped_cmd));
+        json_escape_string(p->name, escaped_name, sizeof(escaped_name));
         
         // Если строки пустые после очистки, используем значения по умолчанию
         if (strlen(escaped_name) == 0) {

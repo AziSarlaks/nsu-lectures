@@ -32,6 +32,16 @@ typedef struct {
 } CPUStats;
 
 typedef struct {
+    double usage;
+    unsigned long long memory_total;
+    unsigned long long memory_used;
+    double temperature;
+    double power;
+    unsigned long clock;
+    char name[128];
+} GPUInfo;
+
+typedef struct {
     int pid;
     char name[256];
     char state;

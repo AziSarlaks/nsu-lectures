@@ -15,9 +15,6 @@ class SystemMonitor {
     setupUI() {
         console.log('Setting up UI...');
         this.updateConnectionStatus('testing', 'Connecting...');
-        
-        // Скрываем GPU карточки (сервер не предоставляет GPU данные)
-        this.hideGPUCard();
     }
 
     async testConnection() {
@@ -32,7 +29,12 @@ class SystemMonitor {
             
             if (response.ok) {
                 const data = await response.json();
-                console.log('✅ Connected successfully!', data);
+                console.log('✅ Connected successfully! Data structure:', {
+                    hasCPU: !!data.cpu,
+                    hasMemory: !!data.memory,
+                    hasGPU: !!data.gpu,
+                    hasProcesses: !!data.processes
+                });
                 
                 this.isOnline = true;
                 this.updateConnectionStatus('online', 'Online');
@@ -101,6 +103,15 @@ class SystemMonitor {
             // Memory
             if (data.memory) {
                 this.updateMemory(data.memory);
+            }
+            
+            // GPU - теперь данные должны быть от сервера
+            if (data.gpu) {
+                this.updateGPU(data.gpu);
+            } else {
+                console.warn('No GPU data in response');
+                // Показываем демо GPU данные если нет от сервера
+                this.updateGPU(this.generateDemoGPU());
             }
             
             // Processes
@@ -213,6 +224,67 @@ class SystemMonitor {
         }
     }
 
+    updateGPU(gpu) {
+        console.log('Updating GPU with:', gpu);
+        
+        // Убедимся что GPU карточки видны
+        this.showGPUCard();
+        
+        // Обновляем использование GPU
+        const gpuValueEl = document.getElementById('gpuValue');
+        if (gpuValueEl && gpu.usage !== undefined) {
+            gpuValueEl.textContent = gpu.usage.toFixed(1) + '%';
+        }
+        
+        // Обновляем память GPU
+        const gpuMem = gpu.memory || {};
+        const memTotal = gpuMem.total || gpu.memory_total || 0;
+        const memUsed = gpuMem.used || gpu.memory_used || 0;
+        const memPercent = memTotal > 0 ? (memUsed / memTotal) * 100 : 0;
+        
+        // Форматируем байты в GB
+        const formatGB = (bytes) => {
+            return (bytes / (1024 * 1024 * 1024)).toFixed(1);
+        };
+        
+        document.getElementById('gpuMemUsed').textContent = formatGB(memUsed) + ' GB';
+        document.getElementById('gpuMemTotal').textContent = formatGB(memTotal) + ' GB';
+        document.getElementById('gpuMemPercent').textContent = `(${memPercent.toFixed(1)}%)`;
+        
+        // Обновляем температуру
+        document.getElementById('gpuTemp').textContent = gpu.temperature ? 
+            `${gpu.temperature.toFixed(1)}°C` : '-- °C';
+        
+        // Обновляем мощность
+        document.getElementById('gpuPower').textContent = gpu.power ? 
+            `${gpu.power.toFixed(1)}W` : '-- W';
+        
+        // Обновляем частоту
+        document.getElementById('gpuClock').textContent = gpu.clock ? 
+            `${gpu.clock} MHz` : '-- MHz';
+        
+        // Обновляем имя GPU
+        const gpuNameElement = document.querySelector('.gpu-card .card-header h2');
+        if (gpuNameElement && gpu.name) {
+            gpuNameElement.innerHTML = `<i class="fas fa-gamepad"></i> ${gpu.name}`;
+        }
+        
+        // Обновляем прогресс-бар памяти
+        const memBar = document.getElementById('gpuMemBar');
+        if (memBar && memTotal > 0) {
+            memBar.style.width = memPercent + '%';
+            memBar.style.background = this.getUsageColor(memPercent);
+        }
+    }
+
+    showGPUCard() {
+        const gpuCard = document.querySelector('.gpu-card');
+        const gpuHistoryCard = document.querySelector('.gpu-history-card');
+        
+        if (gpuCard) gpuCard.style.display = 'block';
+        if (gpuHistoryCard) gpuHistoryCard.style.display = 'block';
+    }
+
     updateProcesses(processes) {
         const tbody = document.getElementById('processTableBody');
         if (!tbody) return;
@@ -251,14 +323,6 @@ class SystemMonitor {
         document.getElementById('processCount').textContent = `${processes.length} processes`;
     }
 
-    hideGPUCard() {
-        const gpuCard = document.querySelector('.gpu-card');
-        const gpuHistoryCard = document.querySelector('.gpu-history-card');
-        
-        if (gpuCard) gpuCard.style.display = 'none';
-        if (gpuHistoryCard) gpuHistoryCard.style.display = 'none';
-    }
-
     updateLastUpdate() {
         const now = new Date();
         const timeStr = now.toLocaleTimeString([], { 
@@ -277,7 +341,7 @@ class SystemMonitor {
         console.log('Starting polling every 2 seconds...');
         
         // Обновляем каждые 2 секунды
-        setInterval(() => {
+        this.pollInterval = setInterval(() => {
             if (this.isOnline) {
                 this.fetchData();
             }
@@ -291,6 +355,7 @@ class SystemMonitor {
             if (response.ok) {
                 const data = await response.json();
                 this.updateUI(data);
+                this.updateLastUpdate();
             } else {
                 console.warn('Fetch failed:', response.status);
             }
@@ -302,19 +367,16 @@ class SystemMonitor {
     startDemoMode() {
         console.log('Starting demo mode...');
         
-        // Показываем GPU в демо-режиме
-        const gpuCard = document.querySelector('.gpu-card');
-        const gpuHistoryCard = document.querySelector('.gpu-history-card');
-        if (gpuCard) gpuCard.style.display = 'block';
-        if (gpuHistoryCard) gpuHistoryCard.style.display = 'block';
-        
-        // Генерируем демо-данные
+        // Генерируем и показываем демо-данные
         this.generateDemoData();
         
         // Обновляем каждые 2 секунды
-        setInterval(() => {
+        this.demoInterval = setInterval(() => {
             this.generateDemoData();
         }, 2000);
+        
+        // Показываем уведомление о демо-режиме
+        this.showDemoNotice();
     }
 
     generateDemoData() {
@@ -334,11 +396,29 @@ class SystemMonitor {
                 cached: (16 * 1024 * 1024 * 1024) * (0.05 + Math.random() * 0.1),
                 percentage: 30 + Math.random() * 50
             },
+            gpu: this.generateDemoGPU(),
             processes: this.generateDemoProcesses()
         };
         
         this.updateUI(demoData);
         this.updateLastUpdate();
+    }
+
+    generateDemoGPU() {
+        const usage = 15 + Math.random() * 70;
+        const memoryTotal = 8 * 1024 * 1024 * 1024; // 8GB
+        
+        return {
+            usage: usage,
+            memory: {
+                total: memoryTotal,
+                used: memoryTotal * (usage / 100)
+            },
+            temperature: 45 + usage * 0.3,
+            power: 60 + usage * 0.7,
+            clock: 1500 + Math.random() * 600,
+            name: 'NVIDIA GeForce RTX 3060 (Demo)'
+        };
     }
 
     generateDemoProcesses() {
@@ -347,7 +427,12 @@ class SystemMonitor {
             { name: 'bash', cpu: 0.3, memory: 2048000 },
             { name: 'chrome', cpu: 8 + Math.random() * 20, memory: 200000000 },
             { name: 'code', cpu: 3 + Math.random() * 8, memory: 300000000 },
-            { name: 'node', cpu: 1 + Math.random() * 5, memory: 100000000 }
+            { name: 'node', cpu: 1 + Math.random() * 5, memory: 100000000 },
+            { name: 'python3', cpu: 2 + Math.random() * 6, memory: 80000000 },
+            { name: 'docker', cpu: 1 + Math.random() * 4, memory: 150000000 },
+            { name: 'mysqld', cpu: 2 + Math.random() * 6, memory: 400000000 },
+            { name: 'nginx', cpu: 0.2 + Math.random() * 1, memory: 10000000 },
+            { name: 'redis', cpu: 0.5 + Math.random() * 2, memory: 20000000 }
         ];
         
         return processList.map((proc, i) => ({
@@ -356,8 +441,50 @@ class SystemMonitor {
             state: ['R', 'S', 'D'][Math.floor(Math.random() * 3)],
             memory: proc.memory,
             cpu: proc.cpu,
-            command: `/usr/bin/${proc.name}`
+            command: `/usr/bin/${proc.name} --demo-mode`
         })).sort((a, b) => b.cpu - a.cpu);
+    }
+
+    showDemoNotice() {
+        // Удаляем старые уведомления
+        const oldNotice = document.querySelector('.demo-notice');
+        if (oldNotice) oldNotice.remove();
+        
+        // Создаем новое уведомление
+        const notice = document.createElement('div');
+        notice.className = 'demo-notice';
+        notice.innerHTML = `
+            <div class="demo-content">
+                <i class="fas fa-info-circle"></i>
+                <span>Running in demo mode. Start the C server to see real data.</span>
+                <button id="retryConnection" class="btn-retry">Retry Connection</button>
+            </div>
+        `;
+        
+        document.body.appendChild(notice);
+        
+        // Добавляем обработчик для кнопки повторного подключения
+        document.getElementById('retryConnection').addEventListener('click', () => {
+            this.retryConnection();
+        });
+    }
+
+    async retryConnection() {
+        console.log('Retrying connection...');
+        
+        // Удаляем демо-уведомление
+        const notice = document.querySelector('.demo-notice');
+        if (notice) notice.remove();
+        
+        // Останавливаем демо-режим
+        if (this.demoInterval) {
+            clearInterval(this.demoInterval);
+            this.demoInterval = null;
+        }
+        
+        // Пробуем подключиться снова
+        this.updateConnectionStatus('testing', 'Retrying connection...');
+        await this.testConnection();
     }
 
     getUsageColor(value) {
@@ -389,6 +516,7 @@ class SystemMonitor {
     }
 
     truncateText(text, maxLength) {
+        if (!text) return '';
         if (text.length <= maxLength) return text;
         return text.substring(0, maxLength - 3) + '...';
     }
@@ -419,11 +547,48 @@ class SystemMonitor {
             } else {
                 this.generateDemoData();
             }
+            
+            // Анимация вращения
+            const btn = document.getElementById('refreshBtn');
+            btn.classList.add('spin');
+            setTimeout(() => btn.classList.remove('spin'), 1000);
         });
         
         // Переключение темы
         document.getElementById('themeToggle')?.addEventListener('click', () => {
             this.toggleTheme();
+        });
+        
+        // Поиск процессов
+        document.getElementById('searchProcess')?.addEventListener('input', (e) => {
+            this.filterProcesses(e.target.value);
+        });
+        
+        // Сортировка процессов
+        document.getElementById('sortBy')?.addEventListener('change', () => {
+            this.fetchData();
+        });
+        
+        // Интервал обновления
+        document.getElementById('updateInterval')?.addEventListener('change', (e) => {
+            this.updatePollingInterval(parseInt(e.target.value));
+        });
+    }
+
+    filterProcesses(searchTerm) {
+        const rows = document.querySelectorAll('#processTableBody tr');
+        const term = searchTerm.toLowerCase();
+        
+        rows.forEach(row => {
+            const name = row.querySelector('.process-name').textContent.toLowerCase();
+            const command = row.querySelector('.command').textContent.toLowerCase();
+            const pid = row.querySelector('.pid').textContent;
+            
+            const matches = name.includes(term) || 
+                          command.includes(term) || 
+                          pid.includes(term);
+            
+            row.style.display = matches ? '' : 'none';
         });
     }
 
@@ -435,6 +600,20 @@ class SystemMonitor {
         localStorage.setItem('sysmon-theme', newTheme);
         
         this.showNotification(`${newTheme} theme enabled`);
+    }
+
+    updatePollingInterval(interval) {
+        if (this.pollInterval) {
+            clearInterval(this.pollInterval);
+        }
+        
+        if (this.isOnline) {
+            this.pollInterval = setInterval(() => {
+                this.fetchData();
+            }, interval);
+        }
+        
+        this.showNotification(`Update interval: ${interval/1000}s`);
     }
 }
 

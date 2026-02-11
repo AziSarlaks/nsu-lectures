@@ -892,3 +892,75 @@ footer {
         bottom: 70px;
     }
 }
+
+.demo-notice {
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    right: 20px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 16px 24px;
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+    z-index: 1000;
+    animation: slideUp 0.3s ease;
+}
+
+.demo-content {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.demo-content i {
+    font-size: 24px;
+}
+
+.btn-retry {
+    background: rgba(255, 255, 255, 0.2);
+    border: 2px solid rgba(255, 255, 255, 0.4);
+    color: white;
+    padding: 8px 20px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.3s ease;
+    white-space: nowrap;
+}
+
+.btn-retry:hover {
+    background: rgba(255, 255, 255, 0.3);
+    border-color: white;
+}
+
+@keyframes slideUp {
+    from {
+        transform: translateY(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+/* Адаптивность для уведомлений */
+@media (max-width: 768px) {
+    .demo-notice {
+        left: 10px;
+        right: 10px;
+        bottom: 10px;
+    }
+    
+    .demo-content {
+        flex-direction: column;
+        text-align: center;
+        gap: 12px;
+    }
+    
+    .btn-retry {
+        width: 100%;
+    }
+}
