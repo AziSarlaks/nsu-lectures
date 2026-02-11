@@ -1,0 +1,17 @@
+16 
+add 7 
+add 3 
+add 5 
+add 5 
+add 10 
+add 7 
+remove 6 
+remove 5 
+add 5 
+remove 3 
+lower 2 
+lower 5 
+add 1 
+lower 0 
+lower 10 
+lower 15
