@@ -236,18 +236,31 @@ int get_processes(ProcessInfo *processes, int *count) {
         
         // Командная строка
         snprintf(path, sizeof(path), "/proc/%d/cmdline", pid);
-        fp = fopen(path, "r");
+        fp = fopen(path, "rb");  // Открываем в бинарном режиме
         if (fp) {
             int bytes = fread(p->command_line, 1, 511, fp);
             if (bytes > 0) {
                 p->command_line[bytes] = '\0';
+                
+                // Заменяем нулевые символы на пробелы (в cmdline они разделены '\0')
                 for (int i = 0; i < bytes; i++) {
-                    if (p->command_line[i] == '\0') p->command_line[i] = ' ';
+                    if (p->command_line[i] == '\0') {
+                        p->command_line[i] = ' ';
+                    }
+                }
+                
+                // Удаляем лишние пробелы в конце
+                int len = strlen(p->command_line);
+                while (len > 0 && (p->command_line[len-1] == ' ' || 
+                                p->command_line[len-1] == '\n' || 
+                                p->command_line[len-1] == '\r')) {
+                    p->command_line[len-1] = '\0';
+                    len--;
                 }
             }
             fclose(fp);
         }
-        
+                
         // Если командная строка пустая, используем имя
         if (strlen(p->command_line) == 0) {
             strcpy(p->command_line, p->name);

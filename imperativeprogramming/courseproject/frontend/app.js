@@ -3,64 +3,242 @@ class SystemMonitor {
         console.log('🚀 System Monitor Initializing...');
         this.serverUrl = 'http://localhost:8080';
         this.isOnline = false;
+        this.connectionTimeout = 10000; // Увеличили до 10 секунд
+        this.historyData = {
+            cpu: [],
+            memory: [],
+            gpu: [],
+            gpu_memory: [],
+            gpu_temperature: [],
+            timestamps: []
+        };
+        this.historyChart = null;
+        this.gpuChart = null;
+        this.chartsInitialized = false;
+        this.retryDelay = 5000; // Задержка между повторными попытками
+        this.maxRetries = 3; // Максимальное количество попыток
+        this.currentRetry = 0;
         this.init();
     }
 
     init() {
         this.setupUI();
         this.setupEventListeners();
+        this.tryInitializeCharts();
         this.testConnection();
     }
 
     setupUI() {
         console.log('Setting up UI...');
-        this.updateConnectionStatus('testing', 'Connecting...');
+        this.updateConnectionStatus('testing', 'Testing connection (timeout: 10s)...');
+        this.createLoadingIndicator();
+    }
+
+    createLoadingIndicator() {
+        // Удаляем старый индикатор если есть
+        const oldLoader = document.getElementById('loadingIndicator');
+        if (oldLoader) oldLoader.remove();
+        
+        const loader = document.createElement('div');
+        loader.id = 'loadingIndicator';
+        loader.className = 'loading-indicator';
+        loader.innerHTML = `
+            <div class="spinner"></div>
+            <span>Connecting to server (timeout: 10s)...</span>
+            <div class="progress-bar">
+                <div class="progress-fill"></div>
+            </div>
+        `;
+        document.body.appendChild(loader);
+    }
+
+    showLoading(show, message = '') {
+        const loader = document.getElementById('loadingIndicator');
+        if (loader) {
+            if (message) {
+                const span = loader.querySelector('span');
+                if (span) span.textContent = message;
+            }
+            loader.style.display = show ? 'flex' : 'none';
+            
+            // Анимация прогресс-бара
+            if (show) {
+                const progressBar = loader.querySelector('.progress-fill');
+                if (progressBar) {
+                    progressBar.style.animation = `progress ${this.connectionTimeout}ms linear`;
+                }
+            }
+        }
     }
 
     async testConnection() {
-        console.log('Testing connection to server...');
+        console.log(`Testing connection to server (timeout: ${this.connectionTimeout}ms)...`);
+        this.showLoading(true, `Connecting to server (${this.currentRetry + 1}/${this.maxRetries})...`);
         
         try {
-            const response = await fetch(`${this.serverUrl}/api/system`, {
-                headers: { 'Accept': 'application/json' }
+            const testUrls = [
+                'http://localhost:8080/api/system',
+                'http://127.0.0.1:8080/api/system',
+                'http://localhost:8080/api/health', // Пробуем health endpoint
+                'http://127.0.0.1:8080/api/health'
+            ];
+            
+            let connected = false;
+            
+            for (const url of testUrls) {
+                console.log(`Trying URL: ${url}`);
+                
+                try {
+                    const response = await this.fetchWithTimeout(url, this.connectionTimeout);
+                    
+                    if (response.ok) {
+                        console.log(`✅ Successfully connected to: ${url}`);
+                        
+                        // Определяем основной URL сервера
+                        if (url.includes('/api/health')) {
+                            this.serverUrl = url.replace('/api/health', '');
+                        } else {
+                            this.serverUrl = url.replace('/api/system', '');
+                        }
+                        
+                        this.isOnline = true;
+                        this.currentRetry = 0;
+                        this.updateConnectionStatus('online', 'Online');
+                        this.showNotification('Connected to server successfully!', 'success');
+                        
+                        // Загружаем системные данные
+                        await this.loadSystemData();
+                        
+                        // Загружаем историю
+                        await this.loadHistory();
+                        
+                        // Запускаем периодическое обновление
+                        this.startPolling();
+                        
+                        connected = true;
+                        break;
+                    }
+                } catch (error) {
+                    console.log(`Failed to connect to ${url}:`, error.message);
+                    continue;
+                }
+            }
+            
+            if (!connected) {
+                throw new Error(`All ${testUrls.length} connection attempts failed`);
+            }
+            
+        } catch (error) {
+            console.error('❌ Connection failed:', error.message);
+            
+            this.currentRetry++;
+            
+            if (this.currentRetry < this.maxRetries) {
+                // Пробуем снова через delay
+                console.log(`Retrying in ${this.retryDelay/1000} seconds... (${this.currentRetry}/${this.maxRetries})`);
+                this.updateConnectionStatus('testing', `Retrying... (${this.currentRetry}/${this.maxRetries})`);
+                
+                // Показываем прогресс перед повторной попыткой
+                this.showLoading(true, `Retrying in ${this.retryDelay/1000}s... (${this.currentRetry}/${this.maxRetries})`);
+                
+                setTimeout(() => {
+                    this.testConnection();
+                }, this.retryDelay);
+                
+            } else {
+                // Все попытки исчерпаны, переходим в демо-режим
+                console.warn(`⚠️ All ${this.maxRetries} retry attempts failed, switching to demo mode`);
+                
+                this.isOnline = false;
+                this.currentRetry = 0;
+                this.updateConnectionStatus('offline', 'Offline (Demo Mode)');
+                this.showNotification(`Server unavailable after ${this.maxRetries} attempts. Running in demo mode.`, 'warning');
+                
+                // Запускаем демо-режим
+                this.startDemoMode();
+            }
+            
+        } finally {
+            this.showLoading(false);
+        }
+    }
+
+    async fetchWithTimeout(url, timeout) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => {
+            console.log(`Timeout reached for: ${url}`);
+            controller.abort();
+        }, timeout);
+        
+        try {
+            const response = await fetch(url, {
+                signal: controller.signal,
+                // Упрощенные заголовки - только Accept
+                headers: {
+                    'Accept': 'application/json'
+                    // Убираем Cache-Control и Pragma - сервер их не разрешает
+                },
+                mode: 'cors',
+                credentials: 'omit'
             });
             
-            console.log('Response status:', response.status);
+            clearTimeout(timeoutId);
+            return response;
+        } catch (error) {
+            clearTimeout(timeoutId);
+            
+            if (error.name === 'AbortError') {
+                throw new Error(`Request timeout after ${timeout}ms`);
+            } else if (error.name === 'TypeError') {
+                throw new Error(`Network error: ${error.message}`);
+            } else {
+                throw error;
+            }
+        }
+    }
+
+    async loadSystemData() {
+        if (!this.isOnline) return;
+        
+        try {
+            const response = await this.fetchWithTimeout(`${this.serverUrl}/api/system`, 5000);
             
             if (response.ok) {
                 const data = await response.json();
-                console.log('✅ Connected successfully! Data structure:', {
+                console.log('📊 System data loaded:', {
                     hasCPU: !!data.cpu,
                     hasMemory: !!data.memory,
                     hasGPU: !!data.gpu,
-                    hasProcesses: !!data.processes
+                    hasProcesses: !!data.processes,
+                    processesCount: data.processes?.length || 0
                 });
                 
-                this.isOnline = true;
-                this.updateConnectionStatus('online', 'Online');
-                this.showNotification('Connected to server!', 'success');
-                
-                // Обновляем UI с реальными данными
                 this.updateUI(data);
-                
-                // Запускаем периодическое обновление
-                this.startPolling();
-                
-                return true;
+                this.updateLastUpdate();
             } else {
+                console.warn('Failed to load system data:', response.status);
                 throw new Error(`HTTP ${response.status}`);
             }
         } catch (error) {
-            console.error('❌ Connection failed:', error);
-            
-            this.isOnline = false;
-            this.updateConnectionStatus('offline', 'Offline (Demo)');
-            this.showNotification('Server unavailable. Demo mode.', 'warning');
-            
-            // Запускаем демо-режим
-            this.startDemoMode();
-            
-            return false;
+            console.error('Error loading system data:', error);
+            throw error;
+        }
+    }
+
+    async loadHistory() {
+        if (!this.isOnline) return;
+        
+        try {
+            const response = await this.fetchWithTimeout(`${this.serverUrl}/api/history`, 5000);
+            if (response.ok) {
+                const data = await response.json();
+                this.historyData = data;
+                if (this.chartsInitialized) {
+                    this.updateCharts();
+                }
+            }
+        } catch (error) {
+            console.error('Failed to load history:', error);
         }
     }
 
@@ -82,7 +260,11 @@ class SystemMonitor {
                 break;
             case 'testing':
                 statusEl.classList.add('testing');
-                statusEl.innerHTML = '<i class="fas fa-sync fa-spin"></i> Connecting...';
+                statusEl.innerHTML = '<i class="fas fa-sync fa-spin"></i> ' + (message || 'Connecting...');
+                break;
+            case 'error':
+                statusEl.classList.add('error');
+                statusEl.innerHTML = '<i class="fas fa-exclamation-circle"></i> Error';
                 break;
         }
         
@@ -92,7 +274,7 @@ class SystemMonitor {
     }
 
     updateUI(data) {
-        console.log('Updating UI with data:', data);
+        console.log('Updating UI with data...');
         
         try {
             // CPU
@@ -105,12 +287,11 @@ class SystemMonitor {
                 this.updateMemory(data.memory);
             }
             
-            // GPU - теперь данные должны быть от сервера
+            // GPU
             if (data.gpu) {
                 this.updateGPU(data.gpu);
             } else {
                 console.warn('No GPU data in response');
-                // Показываем демо GPU данные если нет от сервера
                 this.updateGPU(this.generateDemoGPU());
             }
             
@@ -119,28 +300,22 @@ class SystemMonitor {
                 this.updateProcesses(data.processes);
             }
             
-            // Обновляем время последнего обновления
-            this.updateLastUpdate();
-            
         } catch (error) {
             console.error('Error updating UI:', error);
         }
     }
 
     updateCPU(cpu) {
-        // Обновляем общее использование CPU
         const cpuValueEl = document.getElementById('cpuValue');
         if (cpuValueEl && cpu.usage !== undefined) {
             cpuValueEl.textContent = cpu.usage.toFixed(1) + '%';
         }
         
-        // Обновляем количество ядер
         const cpuCoresEl = document.getElementById('cpuCores');
         if (cpuCoresEl && cpu.cores_count !== undefined) {
             cpuCoresEl.textContent = cpu.cores_count;
         }
         
-        // Обновляем ядра
         this.updateCores(cpu.cores || []);
     }
 
@@ -148,10 +323,8 @@ class SystemMonitor {
         const container = document.getElementById('coresContainer');
         if (!container) return;
         
-        // Очищаем контейнер
         container.innerHTML = '';
         
-        // Добавляем ядра (максимум 24 для отображения)
         const displayCores = cores.slice(0, 24);
         
         displayCores.forEach((core, i) => {
@@ -172,25 +345,21 @@ class SystemMonitor {
             container.appendChild(coreEl);
         });
         
-        // Если нет ядер, показываем сообщение
         if (displayCores.length === 0) {
             container.innerHTML = '<div class="no-cores">No CPU core data</div>';
         }
     }
 
     updateMemory(mem) {
-        // Обновляем общее использование памяти
         const memValueEl = document.getElementById('memoryValue');
         if (memValueEl && mem.percentage !== undefined) {
             memValueEl.textContent = mem.percentage.toFixed(1) + '%';
         }
         
-        // Форматируем байты в GB
         const formatGB = (bytes) => {
             return (bytes / (1024 * 1024 * 1024)).toFixed(1);
         };
         
-        // Обновляем детали памяти
         if (mem.total !== undefined) {
             document.getElementById('memTotal').textContent = formatGB(mem.total) + ' GB';
         }
@@ -204,7 +373,6 @@ class SystemMonitor {
             document.getElementById('memCached').textContent = formatGB(mem.cached) + ' GB';
         }
         
-        // Обновляем прогресс-бар
         if (mem.total > 0) {
             const usedPercent = (mem.used / mem.total) * 100;
             const cachedPercent = (mem.cached / mem.total) * 100;
@@ -225,24 +393,16 @@ class SystemMonitor {
     }
 
     updateGPU(gpu) {
-        console.log('Updating GPU with:', gpu);
-        
-        // Убедимся что GPU карточки видны
-        this.showGPUCard();
-        
-        // Обновляем использование GPU
         const gpuValueEl = document.getElementById('gpuValue');
         if (gpuValueEl && gpu.usage !== undefined) {
             gpuValueEl.textContent = gpu.usage.toFixed(1) + '%';
         }
         
-        // Обновляем память GPU
         const gpuMem = gpu.memory || {};
         const memTotal = gpuMem.total || gpu.memory_total || 0;
         const memUsed = gpuMem.used || gpu.memory_used || 0;
         const memPercent = memTotal > 0 ? (memUsed / memTotal) * 100 : 0;
         
-        // Форматируем байты в GB
         const formatGB = (bytes) => {
             return (bytes / (1024 * 1024 * 1024)).toFixed(1);
         };
@@ -251,25 +411,20 @@ class SystemMonitor {
         document.getElementById('gpuMemTotal').textContent = formatGB(memTotal) + ' GB';
         document.getElementById('gpuMemPercent').textContent = `(${memPercent.toFixed(1)}%)`;
         
-        // Обновляем температуру
         document.getElementById('gpuTemp').textContent = gpu.temperature ? 
             `${gpu.temperature.toFixed(1)}°C` : '-- °C';
         
-        // Обновляем мощность
         document.getElementById('gpuPower').textContent = gpu.power ? 
             `${gpu.power.toFixed(1)}W` : '-- W';
         
-        // Обновляем частоту
         document.getElementById('gpuClock').textContent = gpu.clock ? 
             `${gpu.clock} MHz` : '-- MHz';
         
-        // Обновляем имя GPU
         const gpuNameElement = document.querySelector('.gpu-card .card-header h2');
         if (gpuNameElement && gpu.name) {
             gpuNameElement.innerHTML = `<i class="fas fa-gamepad"></i> ${gpu.name}`;
         }
         
-        // Обновляем прогресс-бар памяти
         const memBar = document.getElementById('gpuMemBar');
         if (memBar && memTotal > 0) {
             memBar.style.width = memPercent + '%';
@@ -277,25 +432,14 @@ class SystemMonitor {
         }
     }
 
-    showGPUCard() {
-        const gpuCard = document.querySelector('.gpu-card');
-        const gpuHistoryCard = document.querySelector('.gpu-history-card');
-        
-        if (gpuCard) gpuCard.style.display = 'block';
-        if (gpuHistoryCard) gpuHistoryCard.style.display = 'block';
-    }
-
     updateProcesses(processes) {
         const tbody = document.getElementById('processTableBody');
         if (!tbody) return;
         
-        // Сортируем по использованию CPU
         const sorted = [...processes].sort((a, b) => (b.cpu || 0) - (a.cpu || 0));
         
-        // Очищаем таблицу
         tbody.innerHTML = '';
         
-        // Добавляем процессы (максимум 15)
         sorted.slice(0, 15).forEach((proc) => {
             const cpu = proc.cpu || 0;
             const memory = proc.memory || 0;
@@ -319,7 +463,6 @@ class SystemMonitor {
             tbody.appendChild(row);
         });
         
-        // Обновляем счетчик процессов
         document.getElementById('processCount').textContent = `${processes.length} processes`;
     }
 
@@ -340,34 +483,29 @@ class SystemMonitor {
     startPolling() {
         console.log('Starting polling every 2 seconds...');
         
-        // Обновляем каждые 2 секунды
+        if (this.pollInterval) {
+            clearInterval(this.pollInterval);
+        }
+        
         this.pollInterval = setInterval(() => {
             if (this.isOnline) {
-                this.fetchData();
+                this.loadSystemData();
+                this.loadHistory();
             }
         }, 2000);
-    }
-
-    async fetchData() {
-        try {
-            const response = await fetch(`${this.serverUrl}/api/system`);
-            
-            if (response.ok) {
-                const data = await response.json();
-                this.updateUI(data);
-                this.updateLastUpdate();
-            } else {
-                console.warn('Fetch failed:', response.status);
-            }
-        } catch (error) {
-            console.error('Fetch error:', error);
-        }
     }
 
     startDemoMode() {
         console.log('Starting demo mode...');
         
-        // Генерируем и показываем демо-данные
+        if (this.demoInterval) {
+            clearInterval(this.demoInterval);
+        }
+        
+        // Инициализируем демо-историю
+        this.initializeDemoHistory();
+        
+        // Генерируем демо-данные
         this.generateDemoData();
         
         // Обновляем каждые 2 секунды
@@ -375,8 +513,27 @@ class SystemMonitor {
             this.generateDemoData();
         }, 2000);
         
-        // Показываем уведомление о демо-режиме
+        // Показываем уведомление
         this.showDemoNotice();
+    }
+
+    initializeDemoHistory() {
+        for (let i = 0; i < 30; i++) {
+            const timeOffset = (29 - i) * 2;
+            
+            this.historyData.timestamps.unshift(Math.floor((Date.now() - timeOffset * 1000) / 1000));
+            this.historyData.cpu.unshift(20 + Math.random() * 40);
+            this.historyData.memory.unshift(30 + Math.random() * 40);
+            this.historyData.gpu.unshift(15 + Math.random() * 50);
+            this.historyData.gpu_memory.unshift(20 + Math.random() * 60);
+            this.historyData.gpu_temperature.unshift(40 + Math.random() * 30);
+        }
+        
+        this.historyData.count = 30;
+        
+        if (this.chartsInitialized) {
+            this.updateCharts();
+        }
     }
 
     generateDemoData() {
@@ -406,7 +563,7 @@ class SystemMonitor {
 
     generateDemoGPU() {
         const usage = 15 + Math.random() * 70;
-        const memoryTotal = 8 * 1024 * 1024 * 1024; // 8GB
+        const memoryTotal = 8 * 1024 * 1024 * 1024;
         
         return {
             usage: usage,
@@ -427,12 +584,7 @@ class SystemMonitor {
             { name: 'bash', cpu: 0.3, memory: 2048000 },
             { name: 'chrome', cpu: 8 + Math.random() * 20, memory: 200000000 },
             { name: 'code', cpu: 3 + Math.random() * 8, memory: 300000000 },
-            { name: 'node', cpu: 1 + Math.random() * 5, memory: 100000000 },
-            { name: 'python3', cpu: 2 + Math.random() * 6, memory: 80000000 },
-            { name: 'docker', cpu: 1 + Math.random() * 4, memory: 150000000 },
-            { name: 'mysqld', cpu: 2 + Math.random() * 6, memory: 400000000 },
-            { name: 'nginx', cpu: 0.2 + Math.random() * 1, memory: 10000000 },
-            { name: 'redis', cpu: 0.5 + Math.random() * 2, memory: 20000000 }
+            { name: 'node', cpu: 1 + Math.random() * 5, memory: 100000000 }
         ];
         
         return processList.map((proc, i) => ({
@@ -446,45 +598,81 @@ class SystemMonitor {
     }
 
     showDemoNotice() {
-        // Удаляем старые уведомления
         const oldNotice = document.querySelector('.demo-notice');
         if (oldNotice) oldNotice.remove();
         
-        // Создаем новое уведомление
         const notice = document.createElement('div');
         notice.className = 'demo-notice';
         notice.innerHTML = `
             <div class="demo-content">
                 <i class="fas fa-info-circle"></i>
-                <span>Running in demo mode. Start the C server to see real data.</span>
-                <button id="retryConnection" class="btn-retry">Retry Connection</button>
+                <span>Running in demo mode. Server unavailable.</span>
+                <div class="demo-actions">
+                    <button id="retryConnection" class="btn-retry">
+                        <i class="fas fa-redo"></i> Retry Connection
+                    </button>
+                    <button id="openServerConfig" class="btn-config">
+                        <i class="fas fa-server"></i> Server Info
+                    </button>
+                </div>
             </div>
         `;
         
         document.body.appendChild(notice);
         
-        // Добавляем обработчик для кнопки повторного подключения
         document.getElementById('retryConnection').addEventListener('click', () => {
             this.retryConnection();
+        });
+        
+        document.getElementById('openServerConfig').addEventListener('click', () => {
+            this.showServerInfo();
         });
     }
 
     async retryConnection() {
         console.log('Retrying connection...');
         
-        // Удаляем демо-уведомление
         const notice = document.querySelector('.demo-notice');
         if (notice) notice.remove();
         
-        // Останавливаем демо-режим
         if (this.demoInterval) {
             clearInterval(this.demoInterval);
             this.demoInterval = null;
         }
         
-        // Пробуем подключиться снова
         this.updateConnectionStatus('testing', 'Retrying connection...');
         await this.testConnection();
+    }
+
+    showServerInfo() {
+        const info = `
+            <div class="server-info-modal">
+                <h3>Server Connection Info</h3>
+                <p><strong>Expected URL:</strong> http://localhost:8080</p>
+                <p><strong>API Endpoints:</strong></p>
+                <ul>
+                    <li>GET /api/system - System data</li>
+                    <li>GET /api/history - History data</li>
+                    <li>GET /api/health - Health check</li>
+                </ul>
+                <p><strong>To start the server:</strong></p>
+                <pre>./monitor_server</pre>
+                <p><strong>Check if server is running:</strong></p>
+                <pre>curl http://localhost:8080/api/health</pre>
+            </div>
+        `;
+        
+        this.showNotification('Check browser console for server info', 'info');
+        console.info('Server Connection Info:', {
+            expectedUrl: 'http://localhost:8080',
+            endpoints: [
+                'GET /api/system',
+                'GET /api/history', 
+                'GET /api/health'
+            ],
+            startCommand: './monitor_server',
+            testCommand: 'curl http://localhost:8080/api/health'
+        });
     }
 
     getUsageColor(value) {
@@ -540,38 +728,39 @@ class SystemMonitor {
     }
 
     setupEventListeners() {
-        // Кнопка обновления
         document.getElementById('refreshBtn')?.addEventListener('click', () => {
             if (this.isOnline) {
-                this.fetchData();
+                this.loadSystemData();
+                this.loadHistory();
             } else {
                 this.generateDemoData();
             }
             
-            // Анимация вращения
             const btn = document.getElementById('refreshBtn');
             btn.classList.add('spin');
             setTimeout(() => btn.classList.remove('spin'), 1000);
         });
         
-        // Переключение темы
         document.getElementById('themeToggle')?.addEventListener('click', () => {
             this.toggleTheme();
         });
         
-        // Поиск процессов
         document.getElementById('searchProcess')?.addEventListener('input', (e) => {
             this.filterProcesses(e.target.value);
         });
         
-        // Сортировка процессов
         document.getElementById('sortBy')?.addEventListener('change', () => {
-            this.fetchData();
+            if (this.isOnline) {
+                this.loadSystemData();
+            }
         });
         
-        // Интервал обновления
         document.getElementById('updateInterval')?.addEventListener('change', (e) => {
             this.updatePollingInterval(parseInt(e.target.value));
+        });
+        
+        document.getElementById('historyRange')?.addEventListener('change', (e) => {
+            this.updateHistoryRange(parseInt(e.target.value));
         });
     }
 
@@ -609,16 +798,298 @@ class SystemMonitor {
         
         if (this.isOnline) {
             this.pollInterval = setInterval(() => {
-                this.fetchData();
+                this.loadSystemData();
+                this.loadHistory();
             }, interval);
         }
         
         this.showNotification(`Update interval: ${interval/1000}s`);
+    }
+
+    updateHistoryRange(minutes) {
+        this.showNotification(`Showing last ${minutes} minutes of history`);
+    }
+
+    tryInitializeCharts() {
+        if (typeof Chart !== 'undefined') {
+            this.initializeCharts();
+            this.chartsInitialized = true;
+            console.log('✅ Charts initialized successfully');
+        } else {
+            console.warn('⚠️ Chart.js not loaded yet, will try again in 1 second');
+            setTimeout(() => this.tryInitializeCharts(), 1000);
+        }
+    }
+
+    initializeCharts() {
+        console.log('📊 Initializing charts...');
+        
+        // Инициализация основного графика истории
+        const historyCtx = document.getElementById('historyChart')?.getContext('2d');
+        if (historyCtx) {
+            this.historyChart = new Chart(historyCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: 'CPU Usage %',
+                            data: [],
+                            borderColor: '#3498db',
+                            backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                            borderWidth: 2,
+                            fill: true,
+                            tension: 0.4,
+                            pointRadius: 0
+                        },
+                        {
+                            label: 'Memory Usage %',
+                            data: [],
+                            borderColor: '#2ecc71',
+                            backgroundColor: 'rgba(46, 204, 113, 0.1)',
+                            borderWidth: 2,
+                            fill: true,
+                            tension: 0.4,
+                            pointRadius: 0
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                            labels: {
+                                usePointStyle: true,
+                                padding: 20
+                            }
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            callbacks: {
+                                label: function(context) {
+                                    return `${context.dataset.label}: ${context.parsed.y.toFixed(1)}%`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100,
+                            grid: {
+                                color: 'rgba(0, 0, 0, 0.05)'
+                            },
+                            title: {
+                                display: true,
+                                text: 'Percentage (%)',
+                                color: '#666'
+                            },
+                            ticks: {
+                                color: '#666'
+                            }
+                        },
+                        x: {
+                            grid: {
+                                color: 'rgba(0, 0, 0, 0.05)'
+                            },
+                            ticks: {
+                                color: '#666',
+                                maxRotation: 0
+                            }
+                        }
+                    },
+                    animation: {
+                        duration: 0
+                    }
+                }
+            });
+            console.log('✅ History chart initialized');
+        } else {
+            console.warn('⚠️ History chart canvas not found');
+        }
+
+        // Инициализация графика GPU истории
+        const gpuCtx = document.getElementById('gpuChart')?.getContext('2d');
+        if (gpuCtx) {
+            this.gpuChart = new Chart(gpuCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: 'GPU Usage %',
+                            data: [],
+                            borderColor: '#9b59b6',
+                            backgroundColor: 'rgba(155, 89, 182, 0.1)',
+                            borderWidth: 2,
+                            fill: true,
+                            tension: 0.4,
+                            pointRadius: 0
+                        },
+                        {
+                            label: 'GPU Memory %',
+                            data: [],
+                            borderColor: '#e74c3c',
+                            backgroundColor: 'rgba(231, 76, 60, 0.1)',
+                            borderWidth: 2,
+                            fill: true,
+                            tension: 0.4,
+                            pointRadius: 0
+                        },
+                        {
+                            label: 'GPU Temperature °C',
+                            data: [],
+                            borderColor: '#f39c12',
+                            backgroundColor: 'rgba(243, 156, 18, 0.1)',
+                            borderWidth: 2,
+                            fill: false,
+                            tension: 0.4,
+                            pointRadius: 0,
+                            yAxisID: 'y2'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                            labels: {
+                                usePointStyle: true,
+                                padding: 20
+                            }
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            callbacks: {
+                                label: function(context) {
+                                    if (context.datasetIndex === 2) {
+                                        return `${context.dataset.label}: ${context.parsed.y.toFixed(1)}°C`;
+                                    }
+                                    return `${context.dataset.label}: ${context.parsed.y.toFixed(1)}%`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100,
+                            grid: {
+                                color: 'rgba(0, 0, 0, 0.05)'
+                            },
+                            title: {
+                                display: true,
+                                text: 'Percentage (%)',
+                                color: '#666'
+                            },
+                            ticks: {
+                                color: '#666'
+                            }
+                        },
+                        y2: {
+                            position: 'right',
+                            beginAtZero: true,
+                            max: 100,
+                            grid: {
+                                drawOnChartArea: false
+                            },
+                            title: {
+                                display: true,
+                                text: 'Temperature (°C)',
+                                color: '#666'
+                            },
+                            ticks: {
+                                color: '#666'
+                            }
+                        },
+                        x: {
+                            grid: {
+                                color: 'rgba(0, 0, 0, 0.05)'
+                            },
+                            ticks: {
+                                color: '#666',
+                                maxRotation: 0
+                            }
+                        }
+                    },
+                    animation: {
+                        duration: 0
+                    }
+                }
+            });
+            console.log('✅ GPU history chart initialized');
+        } else {
+            console.warn('⚠️ GPU history chart canvas not found');
+        }
+    }
+
+    updateCharts() {
+        if (!this.historyChart || !this.gpuChart) return;
+        
+        // Обновляем основной график истории
+        if (this.historyChart && this.historyData.timestamps.length > 0) {
+            const timestamps = this.historyData.timestamps.map(ts => {
+                const date = new Date(ts * 1000);
+                return date.toLocaleTimeString([], { 
+                    hour: '2-digit', 
+                    minute: '2-digit' 
+                });
+            });
+            
+            this.historyChart.data.labels = timestamps;
+            this.historyChart.data.datasets[0].data = this.historyData.cpu;
+            this.historyChart.data.datasets[1].data = this.historyData.memory;
+            this.historyChart.update();
+            
+            console.log(`📈 Updated history chart with ${this.historyData.timestamps.length} points`);
+        }
+        
+        // Обновляем график GPU истории
+        if (this.gpuChart && this.historyData.timestamps.length > 0) {
+            const timestamps = this.historyData.timestamps.map(ts => {
+                const date = new Date(ts * 1000);
+                return date.toLocaleTimeString([], { 
+                    hour: '2-digit', 
+                    minute: '2-digit' 
+                });
+            });
+            
+            this.gpuChart.data.labels = timestamps;
+            this.gpuChart.data.datasets[0].data = this.historyData.gpu;
+            this.gpuChart.data.datasets[1].data = this.historyData.gpu_memory;
+            this.gpuChart.data.datasets[2].data = this.historyData.gpu_temperature;
+            this.gpuChart.update();
+            
+            console.log(`🎮 Updated GPU chart with ${this.historyData.timestamps.length} points`);
+        }
     }
 }
 
 // Запускаем при загрузке DOM
 document.addEventListener('DOMContentLoaded', () => {
     console.log('📄 DOM loaded, starting SystemMonitor...');
-    window.sysmon = new SystemMonitor();
+    
+    if (typeof Chart === 'undefined') {
+        console.warn('⚠️ Chart.js not loaded, loading it now...');
+        
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/chart.js';
+        script.onload = () => {
+            console.log('✅ Chart.js loaded successfully');
+            window.sysmon = new SystemMonitor();
+        };
+        script.onerror = () => {
+            console.error('❌ Failed to load Chart.js, charts will not work');
+            window.sysmon = new SystemMonitor();
+        };
+        document.head.appendChild(script);
+    } else {
+        window.sysmon = new SystemMonitor();
+    }
 });

@@ -1,4 +1,3 @@
-// charts.js - Дополнительные графики и визуализации
 class SystemCharts {
     constructor() {
         this.charts = {};

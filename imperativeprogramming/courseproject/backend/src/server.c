@@ -13,6 +13,7 @@
 #include "config.h"
 #include "proc_parser.h"
 #include "json_formatter.h"
+#include "history.h"
 
 static int server_socket = -1;
 static pthread_t update_thread;
@@ -21,11 +22,15 @@ static pthread_mutex_t data_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // Увеличиваем буфер для JSON с GPU данными
 #define JSON_BUFFER_SIZE 65536
+#define HISTORY_BUFFER_SIZE 16384
+
 static char system_json[JSON_BUFFER_SIZE];
+static char history_json[HISTORY_BUFFER_SIZE];  // Для истории
 
 static CPUStats cpu_prev, cpu_curr;
 static CPUStats cores_prev[MAX_CORES], cores_curr[MAX_CORES];
 static GPUInfo gpu_info;
+static HistoryData system_history;  // Добавляем историю
 static int cores_count = 0;
 
 void calculate_cpu_usage(CPUStats *prev, CPUStats *curr) {
@@ -51,6 +56,9 @@ void *update_data_thread(void *arg) {
     int process_count = 0;
     
     srand(time(NULL));
+    
+    // Инициализируем историю
+    init_history(&system_history);
     
     // Первоначальное чтение данных
     if (read_cpu_stats(&cpu_prev, cores_prev, &cores_count) != 0) {
@@ -78,7 +86,7 @@ void *update_data_thread(void *arg) {
         // Чтение текущих данных
         read_cpu_stats(&cpu_curr, cores_curr, &cores_count);
         read_memory_info(&mem);
-        read_gpu_info(&gpu_info);  // Обновляем GPU данные
+        read_gpu_info(&gpu_info);
         get_processes(processes, &process_count);
         
         // Расчет использования CPU
@@ -87,11 +95,30 @@ void *update_data_thread(void *arg) {
             calculate_cpu_usage(&cores_prev[i], &cores_curr[i]);
         }
         
-        // Обновление JSON с GPU данными
+        // Добавляем данные в историю
+        double gpu_memory_percent = 0.0;
+        if (gpu_info.memory_total > 0) {
+            gpu_memory_percent = (double)gpu_info.memory_used / gpu_info.memory_total * 100.0;
+        }
+        
+        add_to_history(&system_history, 
+                      cpu_curr.usage_percent,
+                      mem.percentage,
+                      gpu_info.usage,
+                      gpu_memory_percent,
+                      gpu_info.temperature);
+        
+        // Обновляем JSON с историей
         pthread_mutex_lock(&data_mutex);
+        
+        // Основные данные системы
         format_system_info_json(system_json, sizeof(system_json),
                                &cpu_curr, cores_curr, cores_count,
                                &mem, &gpu_info, processes, process_count);
+        
+        // Данные истории
+        get_history_json(history_json, sizeof(history_json), &system_history);
+        
         pthread_mutex_unlock(&data_mutex);
         
         // Сохранение для следующей итерации
@@ -111,7 +138,12 @@ void send_http_response(int client_socket, int status, const char* content_type,
         "Content-Type: %s\r\n"
         "Access-Control-Allow-Origin: *\r\n"
         "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
-        "Access-Control-Allow-Headers: Content-Type\r\n"
+        "Access-Control-Allow-Headers: Content-Type, Accept, Cache-Control, Pragma\r\n"  // Добавили заголовки
+        "Access-Control-Expose-Headers: Content-Length, Content-Type\r\n"
+        "Access-Control-Max-Age: 86400\r\n"
+        "Cache-Control: no-cache, no-store, must-revalidate\r\n"  // Добавили Cache-Control для сервера
+        "Pragma: no-cache\r\n"
+        "Expires: 0\r\n"
         "Content-Length: %ld\r\n"
         "Connection: close\r\n"
         "\r\n"
@@ -127,7 +159,7 @@ void send_http_response(int client_socket, int status, const char* content_type,
 
 void handle_client(int client_socket) {
     char request[4096];
-    char method[16], path[256];
+    char method[16], path[256], protocol[16];
     
     // Читаем запрос
     int bytes_read = recv(client_socket, request, sizeof(request) - 1, 0);
@@ -137,25 +169,58 @@ void handle_client(int client_socket) {
     }
     request[bytes_read] = '\0';
     
-    // Парсим метод и путь
-    sscanf(request, "%s %s", method, path);
+    // Парсим первую строку запроса
+    if (sscanf(request, "%s %s %s", method, path, protocol) != 3) {
+        // Неверный формат запроса
+        printf("Invalid request format\n");
+        close(client_socket);
+        return;
+    }
     
-    printf("Request: %s %s\n", method, path);
+    printf("Request: %s %s %s\n", method, path, protocol);
     
+    // Обрабатываем CORS preflight запрос (OPTIONS)
+    if (strcmp(method, "OPTIONS") == 0) {
+        printf("Processing CORS preflight request\n");
+        
+        char response[1024];
+        int length = snprintf(response, sizeof(response),
+            "HTTP/1.1 200 OK\r\n"
+            "Access-Control-Allow-Origin: *\r\n"
+            "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
+            "Access-Control-Allow-Headers: Content-Type, Accept, Origin, User-Agent\r\n"
+            "Access-Control-Expose-Headers: Content-Length, Content-Type\r\n"
+            "Access-Control-Max-Age: 86400\r\n"
+            "Vary: Origin\r\n"
+            "Content-Length: 0\r\n"
+            "Connection: close\r\n"
+            "\r\n");
+        
+        if (length > 0) {
+            send(client_socket, response, length, 0);
+        }
+        close(client_socket);
+        return;
+    }
+    
+    // Обрабатываем GET запросы
     if (strcmp(method, "GET") == 0) {
         if (strcmp(path, "/") == 0 || strcmp(path, "/index.html") == 0) {
-            // Отдаем HTML
+            // Отдаем HTML страницу
             const char* html = 
                 "<!DOCTYPE html>\n"
                 "<html>\n"
                 "<head>\n"
-                "    <title>System Monitor</title>\n"
+                "    <title>System Monitor Server</title>\n"
                 "    <style>\n"
                 "        body { font-family: Arial, sans-serif; margin: 40px; }\n"
                 "        .container { max-width: 800px; margin: 0 auto; }\n"
                 "        .status { padding: 10px; background: #f0f0f0; border-radius: 5px; }\n"
                 "        .online { color: green; }\n"
                 "        .data { background: #f9f9f9; padding: 20px; margin-top: 20px; border-radius: 5px; }\n"
+                "        code { background: #eee; padding: 2px 4px; border-radius: 3px; }\n"
+                "        a { color: #0066cc; text-decoration: none; }\n"
+                "        a:hover { text-decoration: underline; }\n"
                 "    </style>\n"
                 "</head>\n"
                 "<body>\n"
@@ -163,61 +228,149 @@ void handle_client(int client_socket) {
                 "        <h1>System Monitor Server</h1>\n"
                 "        <div class=\"status\">\n"
                 "            <p class=\"online\">✅ Server is running!</p>\n"
-                "            <p>API: <a href=\"/api/system\">/api/system</a></p>\n"
-                "            <p>Open the frontend at: <code>frontend/index.html</code></p>\n"
+                "            <p><strong>API Endpoints:</strong></p>\n"
+                "            <ul>\n"
+                "                <li><a href=\"/api/system\">GET /api/system</a> - System information (JSON)</li>\n"
+                "                <li><a href=\"/api/history\">GET /api/history</a> - System history (JSON)</li>\n"
+                "                <li><a href=\"/api/health\">GET /api/health</a> - Health check (JSON)</li>\n"
+                "            </ul>\n"
+                "            <p><strong>Frontend:</strong> Open <code>frontend/index.html</code> in your browser</p>\n"
+                "            <p><strong>Note:</strong> This is the backend API server. The frontend is a separate HTML file.</p>\n"
                 "        </div>\n"
                 "        <div class=\"data\">\n"
-                "            <h3>Available endpoints:</h3>\n"
+                "            <h3>Server Information</h3>\n"
+                "            <p><strong>URL:</strong> <code>http://localhost:8080</code></p>\n"
+                "            <p><strong>CORS:</strong> Enabled (all origins allowed)</p>\n"
+                "            <p><strong>Update Interval:</strong> 2 seconds</p>\n"
+                "            <p><strong>Data Collected:</strong> CPU, Memory, GPU, Processes, History</p>\n"
+                "        </div>\n"
+                "    </div>\n"
+                "</body>\n"
+                "</html>";
+            
+            send_http_response(client_socket, 200, "text/html; charset=utf-8", html);
+            
+        } else if (strcmp(path, "/api/system") == 0) {
+            // Отдаем JSON с системной информацией
+            printf("Serving system data\n");
+            pthread_mutex_lock(&data_mutex);
+            
+            // Проверяем что JSON не пустой
+            if (strlen(system_json) == 0) {
+                const char* error_json = "{\"error\":\"Data not ready yet\",\"timestamp\":0}";
+                send_http_response(client_socket, 200, "application/json", error_json);
+            } else {
+                send_http_response(client_socket, 200, "application/json", system_json);
+            }
+            
+            pthread_mutex_unlock(&data_mutex);
+            
+        } else if (strcmp(path, "/api/history") == 0) {
+            // Отдаем JSON с историей
+            printf("Serving history data\n");
+            pthread_mutex_lock(&data_mutex);
+            
+            if (strlen(history_json) == 0) {
+                const char* error_json = "{\"error\":\"History not ready yet\",\"timestamp\":0}";
+                send_http_response(client_socket, 200, "application/json", error_json);
+            } else {
+                send_http_response(client_socket, 200, "application/json", history_json);
+            }
+            
+            pthread_mutex_unlock(&data_mutex);
+            
+        } else if (strcmp(path, "/api/health") == 0) {
+            // Health check endpoint
+            printf("Serving health check\n");
+            char buffer[256];
+            time_t now = time(NULL);
+            
+            // Проверяем состояние сервера
+            int server_ok = (server_socket != -1) && running;
+            int data_ok = (strlen(system_json) > 0);
+            
+            snprintf(buffer, sizeof(buffer), 
+                "{\n"
+                "  \"status\": \"%s\",\n"
+                "  \"service\": \"system-monitor\",\n"
+                "  \"timestamp\": %ld,\n"
+                "  \"server_running\": %s,\n"
+                "  \"data_available\": %s,\n"
+                "  \"uptime\": \"running\"\n"
+                "}",
+                server_ok ? "ok" : "error",
+                (long)now,
+                server_ok ? "true" : "false",
+                data_ok ? "true" : "false");
+            
+            send_http_response(client_socket, 200, "application/json", buffer);
+            
+        } else {
+            // 404 Not Found
+            printf("404 Not Found: %s\n", path);
+            const char* not_found = 
+                "<!DOCTYPE html>\n"
+                "<html>\n"
+                "<head>\n"
+                "    <title>404 Not Found</title>\n"
+                "    <style>\n"
+                "        body { font-family: Arial, sans-serif; margin: 40px; }\n"
+                "        h1 { color: #cc0000; }\n"
+                "        .container { max-width: 600px; margin: 0 auto; }\n"
+                "        .error { background: #ffe6e6; padding: 20px; border-radius: 5px; }\n"
+                "        code { background: #eee; padding: 2px 4px; border-radius: 3px; }\n"
+                "    </style>\n"
+                "</head>\n"
+                "<body>\n"
+                "    <div class=\"container\">\n"
+                "        <h1>404 Not Found</h1>\n"
+                "        <div class=\"error\">\n"
+                "            <p>The requested URL <code>%s</code> was not found on this server.</p>\n"
+                "            <p>Available endpoints:</p>\n"
                 "            <ul>\n"
-                "                <li><a href=\"/api/system\">GET /api/system</a> - System information</li>\n"
-                "                <li><a href=\"/api/health\">GET /api/health</a> - Health check</li>\n"
+                "                <li><code>/api/system</code> - System information</li>\n"
+                "                <li><code>/api/history</code> - System history</li>\n"
+                "                <li><code>/api/health</code> - Health check</li>\n"
                 "            </ul>\n"
                 "        </div>\n"
                 "    </div>\n"
                 "</body>\n"
                 "</html>";
             
-            send_http_response(client_socket, 200, "text/html", html);
-            
-        } else if (strcmp(path, "/api/system") == 0) {
-            // Отдаем JSON с системной информацией
-            pthread_mutex_lock(&data_mutex);
-            send_http_response(client_socket, 200, "application/json", system_json);
-            pthread_mutex_unlock(&data_mutex);
-            
-        } else if (strcmp(path, "/api/health") == 0) {
-            // Health check endpoint
-            char buffer[256];
-            snprintf(buffer, sizeof(buffer), 
-                     "{\"status\":\"ok\",\"service\":\"system-monitor\",\"timestamp\":%ld}",
-                     (long)time(NULL));
-            send_http_response(client_socket, 200, "application/json", buffer);
-            
-        } else {
-            // 404 Not Found
-            const char* not_found = 
-                "<html><body><h1>404 Not Found</h1><p>The requested URL was not found on this server.</p></body></html>";
-            send_http_response(client_socket, 404, "text/html", not_found);
+            char not_found_buffer[1024];
+            snprintf(not_found_buffer, sizeof(not_found_buffer), not_found, path);
+            send_http_response(client_socket, 404, "text/html; charset=utf-8", not_found_buffer);
         }
         
-    } else if (strcmp(method, "OPTIONS") == 0) {
-        // Preflight request for CORS
-        char response[512];
-        int length = snprintf(response, sizeof(response),
-            "HTTP/1.1 200 OK\r\n"
-            "Access-Control-Allow-Origin: *\r\n"
-            "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
-            "Access-Control-Allow-Headers: Content-Type\r\n"
-            "Content-Length: 0\r\n"
-            "\r\n");
-        
-        send(client_socket, response, length, 0);
-        
     } else {
-        // Метод не поддерживается
+        // Метод не поддерживается (не GET и не OPTIONS)
+        printf("405 Method Not Allowed: %s\n", method);
         const char* not_allowed = 
-            "<html><body><h1>405 Method Not Allowed</h1></body></html>";
-        send_http_response(client_socket, 405, "text/html", not_allowed);
+            "<!DOCTYPE html>\n"
+            "<html>\n"
+            "<head>\n"
+            "    <title>405 Method Not Allowed</title>\n"
+            "    <style>\n"
+            "        body { font-family: Arial, sans-serif; margin: 40px; }\n"
+            "        h1 { color: #cc6600; }\n"
+            "        .container { max-width: 600px; margin: 0 auto; }\n"
+            "        .warning { background: #fff3cd; padding: 20px; border-radius: 5px; }\n"
+            "    </style>\n"
+            "</head>\n"
+            "<body>\n"
+            "    <div class=\"container\">\n"
+            "        <h1>405 Method Not Allowed</h1>\n"
+            "        <div class=\"warning\">\n"
+            "            <p>The method <code>%s</code> is not allowed for the requested URL.</p>\n"
+            "            <p>This server only supports <code>GET</code> and <code>OPTIONS</code> methods.</p>\n"
+            "        </div>\n"
+    "    </div>\n"
+                "</body>\n"
+                "</html>";
+        
+        char not_allowed_buffer[1024];
+        snprintf(not_allowed_buffer, sizeof(not_allowed_buffer), not_allowed, method);
+        send_http_response(client_socket, 405, "text/html; charset=utf-8", not_allowed_buffer);
     }
     
     close(client_socket);
