@@ -10,6 +10,7 @@
 #include <time.h>
 #include <ifaddrs.h>
 #include <netdb.h>
+#include <stdarg.h>
 #include "config.h"
 #include "proc_parser.h"
 #include "json_formatter.h"
@@ -20,17 +21,16 @@ static pthread_t update_thread;
 static volatile int running = 1;
 static pthread_mutex_t data_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-// Увеличиваем буфер для JSON с GPU данными
 #define JSON_BUFFER_SIZE 65536
 #define HISTORY_BUFFER_SIZE 16384
 
 static char system_json[JSON_BUFFER_SIZE];
-static char history_json[HISTORY_BUFFER_SIZE];  // Для истории
+static char history_json[HISTORY_BUFFER_SIZE];
 
 static CPUStats cpu_prev, cpu_curr;
 static CPUStats cores_prev[MAX_CORES], cores_curr[MAX_CORES];
 static GPUInfo gpu_info;
-static HistoryData system_history;  // Добавляем историю
+static HistoryData system_history;
 static int cores_count = 0;
 
 void calculate_cpu_usage(CPUStats *prev, CPUStats *curr) {
@@ -49,7 +49,7 @@ void calculate_cpu_usage(CPUStats *prev, CPUStats *curr) {
 }
 
 void *update_data_thread(void *arg) {
-    (void)arg; // Неиспользуемый параметр
+    (void)arg;
     
     MemoryInfo mem;
     ProcessInfo processes[MAX_PROCESSES];
@@ -57,12 +57,9 @@ void *update_data_thread(void *arg) {
     
     srand(time(NULL));
     
-    // Инициализируем историю
     init_history(&system_history);
     
-    // Первоначальное чтение данных
     if (read_cpu_stats(&cpu_prev, cores_prev, &cores_count) != 0) {
-        // Значения по умолчанию
         cores_count = 4;
         cpu_prev.total = 1000;
         cpu_prev.idle = 800;
@@ -72,7 +69,6 @@ void *update_data_thread(void *arg) {
         }
     }
     
-    // Читаем GPU данные при запуске
     read_gpu_info(&gpu_info);
     
     memcpy(&cpu_curr, &cpu_prev, sizeof(CPUStats));
@@ -83,19 +79,16 @@ void *update_data_thread(void *arg) {
     while (running) {
         usleep(UPDATE_INTERVAL_MS * 1000);
         
-        // Чтение текущих данных
         read_cpu_stats(&cpu_curr, cores_curr, &cores_count);
         read_memory_info(&mem);
         read_gpu_info(&gpu_info);
         get_processes(processes, &process_count);
         
-        // Расчет использования CPU
         calculate_cpu_usage(&cpu_prev, &cpu_curr);
         for (int i = 0; i < cores_count; i++) {
             calculate_cpu_usage(&cores_prev[i], &cores_curr[i]);
         }
         
-        // Добавляем данные в историю
         double gpu_memory_percent = 0.0;
         if (gpu_info.memory_total > 0) {
             gpu_memory_percent = (double)gpu_info.memory_used / gpu_info.memory_total * 100.0;
@@ -108,20 +101,16 @@ void *update_data_thread(void *arg) {
                       gpu_memory_percent,
                       gpu_info.temperature);
         
-        // Обновляем JSON с историей
         pthread_mutex_lock(&data_mutex);
         
-        // Основные данные системы
         format_system_info_json(system_json, sizeof(system_json),
                                &cpu_curr, cores_curr, cores_count,
                                &mem, &gpu_info, processes, process_count);
         
-        // Данные истории
         get_history_json(history_json, sizeof(history_json), &system_history);
         
         pthread_mutex_unlock(&data_mutex);
         
-        // Сохранение для следующей итерации
         memcpy(&cpu_prev, &cpu_curr, sizeof(CPUStats));
         for (int i = 0; i < cores_count; i++) {
             memcpy(&cores_prev[i], &cores_curr[i], sizeof(CPUStats));
@@ -132,27 +121,40 @@ void *update_data_thread(void *arg) {
 }
 
 void send_http_response(int client_socket, int status, const char* content_type, const char* body) {
-    char response[4096];
+    char response[8192];
+    const char* status_text;
+    
+    switch (status) {
+        case 200: status_text = "OK"; break;
+        case 404: status_text = "Not Found"; break;
+        case 405: status_text = "Method Not Allowed"; break;
+        case 500: status_text = "Internal Server Error"; break;
+        default: status_text = "Unknown"; break;
+    }
+    
     int length = snprintf(response, sizeof(response),
         "HTTP/1.1 %d %s\r\n"
         "Content-Type: %s\r\n"
         "Access-Control-Allow-Origin: *\r\n"
         "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
-        "Access-Control-Allow-Headers: Content-Type, Accept, Cache-Control, Pragma\r\n"  // Добавили заголовки
+        "Access-Control-Allow-Headers: Content-Type, Accept, Origin, User-Agent\r\n"
         "Access-Control-Expose-Headers: Content-Length, Content-Type\r\n"
         "Access-Control-Max-Age: 86400\r\n"
-        "Cache-Control: no-cache, no-store, must-revalidate\r\n"  // Добавили Cache-Control для сервера
-        "Pragma: no-cache\r\n"
-        "Expires: 0\r\n"
+        "Vary: Origin\r\n"
         "Content-Length: %ld\r\n"
         "Connection: close\r\n"
         "\r\n"
         "%s",
         status,
-        status == 200 ? "OK" : "Not Found",
+        status_text,
         content_type,
-        strlen(body),
+        (long)strlen(body),
         body);
+    
+    if (length >= (int)sizeof(response) - 1) {
+        response[sizeof(response) - 1] = '\0';
+        length = sizeof(response) - 1;
+    }
     
     send(client_socket, response, length, 0);
 }
@@ -161,7 +163,6 @@ void handle_client(int client_socket) {
     char request[4096];
     char method[16], path[256], protocol[16];
     
-    // Читаем запрос
     int bytes_read = recv(client_socket, request, sizeof(request) - 1, 0);
     if (bytes_read <= 0) {
         close(client_socket);
@@ -169,9 +170,7 @@ void handle_client(int client_socket) {
     }
     request[bytes_read] = '\0';
     
-    // Парсим первую строку запроса
     if (sscanf(request, "%s %s %s", method, path, protocol) != 3) {
-        // Неверный формат запроса
         printf("Invalid request format\n");
         close(client_socket);
         return;
@@ -179,7 +178,6 @@ void handle_client(int client_socket) {
     
     printf("Request: %s %s %s\n", method, path, protocol);
     
-    // Обрабатываем CORS preflight запрос (OPTIONS)
     if (strcmp(method, "OPTIONS") == 0) {
         printf("Processing CORS preflight request\n");
         
@@ -203,10 +201,8 @@ void handle_client(int client_socket) {
         return;
     }
     
-    // Обрабатываем GET запросы
     if (strcmp(method, "GET") == 0) {
         if (strcmp(path, "/") == 0 || strcmp(path, "/index.html") == 0) {
-            // Отдаем HTML страницу
             const char* html = 
                 "<!DOCTYPE html>\n"
                 "<html>\n"
@@ -235,14 +231,12 @@ void handle_client(int client_socket) {
                 "                <li><a href=\"/api/health\">GET /api/health</a> - Health check (JSON)</li>\n"
                 "            </ul>\n"
                 "            <p><strong>Frontend:</strong> Open <code>frontend/index.html</code> in your browser</p>\n"
-                "            <p><strong>Note:</strong> This is the backend API server. The frontend is a separate HTML file.</p>\n"
                 "        </div>\n"
                 "        <div class=\"data\">\n"
                 "            <h3>Server Information</h3>\n"
                 "            <p><strong>URL:</strong> <code>http://localhost:8080</code></p>\n"
                 "            <p><strong>CORS:</strong> Enabled (all origins allowed)</p>\n"
                 "            <p><strong>Update Interval:</strong> 2 seconds</p>\n"
-                "            <p><strong>Data Collected:</strong> CPU, Memory, GPU, Processes, History</p>\n"
                 "        </div>\n"
                 "    </div>\n"
                 "</body>\n"
@@ -251,11 +245,9 @@ void handle_client(int client_socket) {
             send_http_response(client_socket, 200, "text/html; charset=utf-8", html);
             
         } else if (strcmp(path, "/api/system") == 0) {
-            // Отдаем JSON с системной информацией
             printf("Serving system data\n");
             pthread_mutex_lock(&data_mutex);
             
-            // Проверяем что JSON не пустой
             if (strlen(system_json) == 0) {
                 const char* error_json = "{\"error\":\"Data not ready yet\",\"timestamp\":0}";
                 send_http_response(client_socket, 200, "application/json", error_json);
@@ -266,7 +258,6 @@ void handle_client(int client_socket) {
             pthread_mutex_unlock(&data_mutex);
             
         } else if (strcmp(path, "/api/history") == 0) {
-            // Отдаем JSON с историей
             printf("Serving history data\n");
             pthread_mutex_lock(&data_mutex);
             
@@ -280,12 +271,10 @@ void handle_client(int client_socket) {
             pthread_mutex_unlock(&data_mutex);
             
         } else if (strcmp(path, "/api/health") == 0) {
-            // Health check endpoint
             printf("Serving health check\n");
             char buffer[256];
             time_t now = time(NULL);
             
-            // Проверяем состояние сервера
             int server_ok = (server_socket != -1) && running;
             int data_ok = (strlen(system_json) > 0);
             
@@ -295,8 +284,7 @@ void handle_client(int client_socket) {
                 "  \"service\": \"system-monitor\",\n"
                 "  \"timestamp\": %ld,\n"
                 "  \"server_running\": %s,\n"
-                "  \"data_available\": %s,\n"
-                "  \"uptime\": \"running\"\n"
+                "  \"data_available\": %s\n"
                 "}",
                 server_ok ? "ok" : "error",
                 (long)now,
@@ -306,7 +294,6 @@ void handle_client(int client_socket) {
             send_http_response(client_socket, 200, "application/json", buffer);
             
         } else {
-            // 404 Not Found
             printf("404 Not Found: %s\n", path);
             const char* not_found = 
                 "<!DOCTYPE html>\n"
@@ -343,7 +330,6 @@ void handle_client(int client_socket) {
         }
         
     } else {
-        // Метод не поддерживается (не GET и не OPTIONS)
         printf("405 Method Not Allowed: %s\n", method);
         const char* not_allowed = 
             "<!DOCTYPE html>\n"
@@ -364,9 +350,9 @@ void handle_client(int client_socket) {
             "            <p>The method <code>%s</code> is not allowed for the requested URL.</p>\n"
             "            <p>This server only supports <code>GET</code> and <code>OPTIONS</code> methods.</p>\n"
             "        </div>\n"
-    "    </div>\n"
-                "</body>\n"
-                "</html>";
+            "    </div>\n"
+            "</body>\n"
+            "</html>";
         
         char not_allowed_buffer[1024];
         snprintf(not_allowed_buffer, sizeof(not_allowed_buffer), not_allowed, method);
@@ -376,7 +362,6 @@ void handle_client(int client_socket) {
     close(client_socket);
 }
 
-// Функция для получения локального IP
 char* get_local_ip() {
     static char ip[INET_ADDRSTRLEN] = "127.0.0.1";
     struct ifaddrs *ifaddr, *ifa;
@@ -391,12 +376,10 @@ char* get_local_ip() {
         
         family = ifa->ifa_addr->sa_family;
         
-        // Проверяем IPv4 и не петлевой интерфейс
         if (family == AF_INET && strcmp(ifa->ifa_name, "lo") != 0) {
             struct sockaddr_in *addr = (struct sockaddr_in *)ifa->ifa_addr;
             inet_ntop(AF_INET, &addr->sin_addr, ip, INET_ADDRSTRLEN);
             
-            // Предпочитаем не приватные адреса
             if (strncmp(ip, "192.168.", 8) != 0 &&
                 strncmp(ip, "10.", 3) != 0 &&
                 strncmp(ip, "172.", 4) != 0) {
@@ -410,14 +393,12 @@ char* get_local_ip() {
 }
 
 int start_server(int port) {
-    // Создание сокета
     server_socket = socket(AF_INET, SOCK_STREAM, 0);
     if (server_socket < 0) {
         perror("socket");
         return -1;
     }
     
-    // Настройка сокета
     int opt = 1;
     if (setsockopt(server_socket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
         perror("setsockopt");
@@ -431,21 +412,18 @@ int start_server(int port) {
     server_addr.sin_addr.s_addr = INADDR_ANY;
     server_addr.sin_port = htons(port);
     
-    // Биндинг
     if (bind(server_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
         perror("bind");
         close(server_socket);
         return -1;
     }
     
-    // Прослушивание
     if (listen(server_socket, MAX_CONNECTIONS) < 0) {
         perror("listen");
         close(server_socket);
         return -1;
     }
     
-    // Запуск потока обновления данных
     if (pthread_create(&update_thread, NULL, update_data_thread, NULL) != 0) {
         perror("pthread_create");
         close(server_socket);
@@ -465,7 +443,6 @@ int start_server(int port) {
     printf("🛑 Press Ctrl+C to stop\n");
     printf("\n");
     
-    // Основной цикл сервера
     while (running) {
         struct sockaddr_in client_addr;
         socklen_t client_len = sizeof(client_addr);
@@ -481,7 +458,6 @@ int start_server(int port) {
             continue;
         }
         
-        // Обрабатываем клиента
         handle_client(client_socket);
     }
     

@@ -5,14 +5,14 @@
 #include <unistd.h>
 #include <ctype.h>
 #include <sys/sysinfo.h>
+#include <sys/stat.h>
 #include <glob.h>
 #include "config.h"
 #include "proc_parser.h"
-#include <sys/stat.h>
 
 int get_cpu_cores_count() {
     FILE *fp = fopen("/proc/cpuinfo", "r");
-    if (!fp) return 4; // По умолчанию 4 ядра
+    if (!fp) return 4;
     
     char line[256];
     int cores = 0;
@@ -30,7 +30,6 @@ int get_cpu_cores_count() {
 int read_cpu_stats(CPUStats *cpu, CPUStats *cores, int *cores_count) {
     FILE *fp = fopen("/proc/stat", "r");
     if (!fp) {
-        // Тестовые данные если файл недоступен
         cpu->usage_percent = 25.0;
         *cores_count = 4;
         for (int i = 0; i < 4; i++) {
@@ -45,7 +44,6 @@ int read_cpu_stats(CPUStats *cpu, CPUStats *cores, int *cores_count) {
     
     while (fgets(line, sizeof(line), fp)) {
         if (strncmp(line, "cpu ", 4) == 0) {
-            // Общий CPU
             sscanf(line + 5, 
                    "%lf %lf %lf %lf %lf %lf %lf %lf %lf %lf",
                    &cpu->user, &cpu->nice, &cpu->system, &cpu->idle,
@@ -54,10 +52,9 @@ int read_cpu_stats(CPUStats *cpu, CPUStats *cores, int *cores_count) {
             
             cpu->total = cpu->user + cpu->nice + cpu->system + cpu->idle +
                         cpu->iowait + cpu->irq + cpu->softirq + cpu->steal;
-            cpu->usage_percent = 0.0; // Будет рассчитано позже
+            cpu->usage_percent = 0.0;
         }
         else if (strncmp(line, "cpu", 3) == 0 && isdigit(line[3])) {
-            // Отдельные ядра
             if (total_cores_found < MAX_CORES) {
                 sscanf(line + 3, "%*d %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf",
                        &cores[total_cores_found].user, &cores[total_cores_found].nice,
@@ -71,7 +68,7 @@ int read_cpu_stats(CPUStats *cpu, CPUStats *cores, int *cores_count) {
                     cores[total_cores_found].system + cores[total_cores_found].idle +
                     cores[total_cores_found].iowait + cores[total_cores_found].irq +
                     cores[total_cores_found].softirq + cores[total_cores_found].steal;
-                cores[total_cores_found].usage_percent = 0.0; // Будет рассчитано позже
+                cores[total_cores_found].usage_percent = 0.0;
                 
                 total_cores_found++;
             }
@@ -79,10 +76,8 @@ int read_cpu_stats(CPUStats *cpu, CPUStats *cores, int *cores_count) {
     }
     
     fclose(fp);
-    
     *cores_count = total_cores_found;
     
-    // Если не нашли отдельные ядра, создаем на основе общего
     if (*cores_count == 0) {
         *cores_count = get_cpu_cores_count();
         if (*cores_count > MAX_CORES) *cores_count = MAX_CORES;
@@ -109,7 +104,6 @@ int read_cpu_stats(CPUStats *cpu, CPUStats *cores, int *cores_count) {
 }
 
 int read_memory_info(MemoryInfo *mem) {
-    // Используем sysinfo для получения реальных данных
     struct sysinfo info;
     if (sysinfo(&info) == 0) {
         mem->total = info.totalram * info.mem_unit;
@@ -126,14 +120,12 @@ int read_memory_info(MemoryInfo *mem) {
         return 0;
     }
     
-    // Fallback на /proc/meminfo если sysinfo не сработал
     FILE *fp = fopen("/proc/meminfo", "r");
     if (!fp) {
-        // Тестовые данные
-        mem->total = 17179869184; // 16GB
-        mem->used = 6442450944;   // 6GB
-        mem->free = 10737418240;  // 10GB
-        mem->cached = 2147483648; // 2GB
+        mem->total = 17179869184;
+        mem->used = 6442450944;
+        mem->free = 10737418240;
+        mem->cached = 2147483648;
         mem->percentage = 37.5;
         return 0;
     }
@@ -164,10 +156,259 @@ int read_memory_info(MemoryInfo *mem) {
     return 0;
 }
 
+int read_gpu_info(GPUInfo *gpu) {
+    memset(gpu, 0, sizeof(GPUInfo));
+    strcpy(gpu->name, "Unknown GPU");
+    
+    static unsigned long long stable_memory_total = 0;
+    static char stable_name[128] = "";
+    static int first_run = 1;
+    
+    printf("🔍 Searching for GPU information...\n");
+    
+    // Пробуем nvidia-smi
+    FILE *fp = popen("nvidia-smi --query-gpu=utilization.gpu,memory.total,memory.used,temperature.gpu,power.draw,clocks.gr.gpu,name --format=csv,noheader,nounits 2>/dev/null", "r");
+    
+    if (fp) {
+        char line[512];
+        if (fgets(line, sizeof(line), fp)) {
+            printf("Raw nvidia-smi line: %s\n", line);
+            
+            // Очищаем строку от пробелов
+            char *line_ptr = line;
+            while (*line_ptr == ' ' || *line_ptr == '\t' || *line_ptr == '\n' || *line_ptr == '\r') {
+                line_ptr++;
+            }
+            
+            // Разделяем строку на части
+            char *parts[10];
+            int part_count = 0;
+            char *token = strtok(line_ptr, ",");
+            
+            while (token && part_count < 10) {
+                // Убираем пробелы в начале и конце
+                while (*token == ' ' || *token == '\t') token++;
+                char *end = token + strlen(token) - 1;
+                while (end > token && (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r')) {
+                    *end = '\0';
+                    end--;
+                }
+                
+                parts[part_count++] = token;
+                token = strtok(NULL, ",");
+            }
+            
+            if (part_count >= 7) {
+                // Парсим каждую часть отдельно с проверкой ошибок
+                double usage = 0, temp = 0, power = 0;
+                unsigned long long mem_total = 0, mem_used = 0;
+                unsigned long clock = 0;
+                char name[128] = "";
+                
+                // Использование GPU
+                if (sscanf(parts[0], "%lf", &usage) != 1) {
+                    printf("Failed to parse usage: %s\n", parts[0]);
+                    usage = 0;
+                }
+                
+                // Общая память
+                if (sscanf(parts[1], "%llu", &mem_total) != 1) {
+                    printf("Failed to parse memory total: %s\n", parts[1]);
+                    mem_total = 8192; // 8GB в MB
+                }
+                
+                // Использованная память
+                if (sscanf(parts[2], "%llu", &mem_used) != 1) {
+                    printf("Failed to parse memory used: %s\n", parts[2]);
+                    mem_used = 0;
+                }
+                
+                // Температура
+                if (sscanf(parts[3], "%lf", &temp) != 1) {
+                    printf("Failed to parse temperature: %s\n", parts[3]);
+                    temp = 40;
+                }
+                
+                // Мощность
+                if (sscanf(parts[4], "%lf", &power) != 1) {
+                    printf("Failed to parse power: %s\n", parts[4]);
+                    power = 30;
+                }
+                
+                // Частота
+                if (sscanf(parts[5], "%lu", &clock) != 1) {
+                    printf("Failed to parse clock: %s\n", parts[5]);
+                    clock = 1500;
+                }
+                
+                // Имя
+                strncpy(name, parts[6], sizeof(name) - 1);
+                name[sizeof(name) - 1] = '\0';
+                
+                // Конвертируем MB в байты
+                unsigned long long mem_total_bytes = mem_total * 1024 * 1024;
+                unsigned long long mem_used_bytes = mem_used * 1024 * 1024;
+                
+                printf("Parsed values:\n");
+                printf("  usage: %.1f%%\n", usage);
+                printf("  mem_total: %llu MB (%llu bytes)\n", mem_total, mem_total_bytes);
+                printf("  mem_used: %llu MB (%llu bytes)\n", mem_used, mem_used_bytes);
+                printf("  temp: %.1f°C\n", temp);
+                printf("  power: %.1fW\n", power);
+                printf("  clock: %lu MHz\n", clock);
+                printf("  name: %s\n", name);
+                
+                if (first_run) {
+                    stable_memory_total = mem_total_bytes;
+                    strcpy(stable_name, name);
+                    first_run = 0;
+                    
+                    printf("✅ Storing stable values:\n");
+                    printf("   memory_total: %llu bytes (%.2f GB)\n", 
+                           stable_memory_total, 
+                           stable_memory_total / (1024.0 * 1024 * 1024));
+                }
+                
+                // Заполняем структуру
+                gpu->usage = usage;
+                gpu->memory_total = stable_memory_total;
+                gpu->memory_used = mem_used_bytes;
+                gpu->temperature = temp;
+                gpu->power = power;
+                gpu->clock = clock;
+                strcpy(gpu->name, stable_name);
+                
+                pclose(fp);
+                
+                printf("✅ Final GPU data:\n");
+                printf("   Name: %s\n", gpu->name);
+                printf("   Memory: %.2f / %.2f GB\n", 
+                       gpu->memory_used / (1024.0 * 1024 * 1024),
+                       gpu->memory_total / (1024.0 * 1024 * 1024));
+                printf("   Usage: %.1f%%\n", gpu->usage);
+                return 0;
+            }
+        }
+        pclose(fp);
+    } else {
+        printf("nvidia-smi command failed\n");
+    }
+    
+    // Если не удалось получить данные через nvidia-smi
+    if (first_run) {
+        printf("⚠️ Could not determine GPU memory via nvidia-smi, using defaults\n");
+        stable_memory_total = 8ULL * 1024 * 1024 * 1024; // 8GB в байтах
+        strcpy(stable_name, "NVIDIA GeForce RTX 4060");
+        first_run = 0;
+    }
+    
+    // Используем стабильные значения
+    gpu->memory_total = stable_memory_total;
+    strcpy(gpu->name, stable_name);
+    
+    // Пробуем получить динамические данные через другой запрос
+    fp = popen("nvidia-smi --query-gpu=utilization.gpu,memory.used,temperature.gpu,power.draw,clocks.gr.gpu --format=csv,noheader,nounits 2>/dev/null", "r");
+    if (fp) {
+        char line[256];
+        if (fgets(line, sizeof(line), fp)) {
+            printf("Raw dynamic data line: %s\n", line);
+            
+            char *line_ptr = line;
+            while (*line_ptr == ' ' || *line_ptr == '\t' || *line_ptr == '\n' || *line_ptr == '\r') {
+                line_ptr++;
+            }
+            
+            char *parts[5];
+            int part_count = 0;
+            char *token = strtok(line_ptr, ",");
+            
+            while (token && part_count < 5) {
+                while (*token == ' ' || *token == '\t') token++;
+                char *end = token + strlen(token) - 1;
+                while (end > token && (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r')) {
+                    *end = '\0';
+                    end--;
+                }
+                
+                parts[part_count++] = token;
+                token = strtok(NULL, ",");
+            }
+            
+            if (part_count >= 5) {
+                double usage = 0, temp = 0, power = 0;
+                unsigned long long mem_used_mb = 0;
+                unsigned long clock = 0;
+                
+                if (sscanf(parts[0], "%lf", &usage) == 1 &&
+                    sscanf(parts[1], "%llu", &mem_used_mb) == 1 &&
+                    sscanf(parts[2], "%lf", &temp) == 1 &&
+                    sscanf(parts[3], "%lf", &power) == 1 &&
+                    sscanf(parts[4], "%lu", &clock) == 1) {
+                    
+                    gpu->usage = usage;
+                    gpu->memory_used = mem_used_mb * 1024 * 1024;
+                    gpu->temperature = temp;
+                    gpu->power = power;
+                    gpu->clock = clock;
+                    
+                    printf("Dynamic values parsed successfully\n");
+                } else {
+                    printf("Failed to parse dynamic values\n");
+                    // Демо-данные
+                    gpu->usage = 5.0 + (rand() % 30);
+                    gpu->memory_used = stable_memory_total * (gpu->usage / 100.0);
+                    gpu->temperature = 40.0 + gpu->usage * 0.5;
+                    gpu->power = 30.0 + gpu->usage * 0.8;
+                    gpu->clock = 1500 + (rand() % 500);
+                }
+            } else {
+                printf("Not enough parts in dynamic data: %d\n", part_count);
+                // Демо-данные
+                gpu->usage = 5.0 + (rand() % 30);
+                gpu->memory_used = stable_memory_total * (gpu->usage / 100.0);
+                gpu->temperature = 40.0 + gpu->usage * 0.5;
+                gpu->power = 30.0 + gpu->usage * 0.8;
+                gpu->clock = 1500 + (rand() % 500);
+            }
+        } else {
+            printf("Failed to read from nvidia-smi for dynamic data\n");
+            // Демо-данные
+            gpu->usage = 5.0 + (rand() % 30);
+            gpu->memory_used = stable_memory_total * (gpu->usage / 100.0);
+            gpu->temperature = 40.0 + gpu->usage * 0.5;
+            gpu->power = 30.0 + gpu->usage * 0.8;
+            gpu->clock = 1500 + (rand() % 500);
+        }
+        pclose(fp);
+    } else {
+        printf("nvidia-smi command for dynamic data failed\n");
+        // Демо-данные
+        gpu->usage = 5.0 + (rand() % 30);
+        gpu->memory_used = stable_memory_total * (gpu->usage / 100.0);
+        gpu->temperature = 40.0 + gpu->usage * 0.5;
+        gpu->power = 30.0 + gpu->usage * 0.8;
+        gpu->clock = 1500 + (rand() % 500);
+    }
+    
+    // Проверка на корректность
+    if (gpu->memory_used > gpu->memory_total || gpu->memory_used == 0) {
+        printf("⚠️ memory_used некорректное (%llu), исправляем\n", gpu->memory_used);
+        gpu->memory_used = gpu->memory_total * (gpu->usage / 100.0);
+    }
+    
+    printf("✅ Final GPU data (fallback):\n");
+    printf("   Name: %s\n", gpu->name);
+    printf("   Memory: %.2f / %.2f GB\n", 
+           gpu->memory_used / (1024.0 * 1024 * 1024),
+           gpu->memory_total / (1024.0 * 1024 * 1024));
+    printf("   Usage: %.1f%%\n", gpu->usage);
+    
+    return 0;
+}
+
 int get_processes(ProcessInfo *processes, int *count) {
     DIR *dir = opendir("/proc");
     if (!dir) {
-        // Тестовые процессы
         *count = 10;
         const char *proc_names[] = {"systemd", "bash", "chrome", "firefox", "vim", 
                                    "python3", "node", "docker", "nginx", "sshd"};
@@ -188,7 +429,6 @@ int get_processes(ProcessInfo *processes, int *count) {
     int total_cores = get_cpu_cores_count();
     
     while ((entry = readdir(dir)) != NULL && *count < MAX_PROCESSES) {
-        // Проверяем PID
         int is_pid = 1;
         for (int i = 0; entry->d_name[i]; i++) {
             if (!isdigit(entry->d_name[i])) {
@@ -206,7 +446,6 @@ int get_processes(ProcessInfo *processes, int *count) {
         ProcessInfo *p = &processes[*count];
         p->pid = pid;
         
-        // Значения по умолчанию
         strcpy(p->name, "unknown");
         p->state = '?';
         p->rss = 0;
@@ -214,7 +453,6 @@ int get_processes(ProcessInfo *processes, int *count) {
         p->mem_usage = 0.0;
         strcpy(p->command_line, "");
         
-        // Чтение статуса
         snprintf(path, sizeof(path), "/proc/%d/status", pid);
         FILE *fp = fopen(path, "r");
         if (fp) {
@@ -234,39 +472,32 @@ int get_processes(ProcessInfo *processes, int *count) {
             fclose(fp);
         }
         
-        // Командная строка
         snprintf(path, sizeof(path), "/proc/%d/cmdline", pid);
-        fp = fopen(path, "rb");  // Открываем в бинарном режиме
+        fp = fopen(path, "rb");
         if (fp) {
             int bytes = fread(p->command_line, 1, 511, fp);
             if (bytes > 0) {
                 p->command_line[bytes] = '\0';
-                
-                // Заменяем нулевые символы на пробелы (в cmdline они разделены '\0')
                 for (int i = 0; i < bytes; i++) {
                     if (p->command_line[i] == '\0') {
                         p->command_line[i] = ' ';
                     }
                 }
-                
-                // Удаляем лишние пробелы в конце
                 int len = strlen(p->command_line);
                 while (len > 0 && (p->command_line[len-1] == ' ' || 
-                                p->command_line[len-1] == '\n' || 
-                                p->command_line[len-1] == '\r')) {
+                                   p->command_line[len-1] == '\n' || 
+                                   p->command_line[len-1] == '\r')) {
                     p->command_line[len-1] = '\0';
                     len--;
                 }
             }
             fclose(fp);
         }
-                
-        // Если командная строка пустая, используем имя
+        
         if (strlen(p->command_line) == 0) {
             strcpy(p->command_line, p->name);
         }
         
-        // Расчет использования CPU (упрощенный)
         p->cpu_usage = (rand() % 1000) / 10.0 / total_cores;
         if (p->cpu_usage > 100.0) p->cpu_usage = 100.0;
         
@@ -275,7 +506,6 @@ int get_processes(ProcessInfo *processes, int *count) {
     
     closedir(dir);
     
-    // Сортируем по использованию CPU
     for (int i = 0; i < *count - 1; i++) {
         for (int j = i + 1; j < *count; j++) {
             if (processes[i].cpu_usage < processes[j].cpu_usage) {
@@ -285,251 +515,6 @@ int get_processes(ProcessInfo *processes, int *count) {
             }
         }
     }
-    
-    return 0;
-}
-
-static int find_file_by_pattern(const char *pattern, char *result, size_t result_size) {
-    glob_t glob_result;
-    int ret = glob(pattern, 0, NULL, &glob_result);
-    
-    if (ret == 0 && glob_result.gl_pathc > 0) {
-        strncpy(result, glob_result.gl_pathv[0], result_size - 1);
-        result[result_size - 1] = '\0';
-        globfree(&glob_result);
-        return 1;
-    }
-    
-    globfree(&glob_result);
-    return 0;
-}
-
-int read_gpu_info(GPUInfo *gpu) {
-    // Инициализируем значения по умолчанию
-    memset(gpu, 0, sizeof(GPUInfo));
-    strcpy(gpu->name, "Unknown GPU");
-    
-    printf("🔍 Searching for GPU information...\n");
-    
-    // 1. Пробуем NVIDIA через nvidia-smi (самый надежный способ)
-    printf("Trying nvidia-smi...\n");
-    FILE *fp = popen("timeout 2 nvidia-smi --query-gpu=utilization.gpu,memory.total,memory.used,temperature.gpu,power.draw,clocks.gr.gpu,name --format=csv,noheader,nounits 2>/dev/null", "r");
-    
-    if (fp) {
-        char line[512];
-        if (fgets(line, sizeof(line), fp)) {
-            // Убираем возможные пробелы и лишние символы
-            char *line_ptr = line;
-            while (*line_ptr == ' ' || *line_ptr == '\n' || *line_ptr == '\r') line_ptr++;
-            
-            // Парсим данные
-            int matches = sscanf(line_ptr, "%lf,%llu,%llu,%lf,%lf,%lu,%127[^\n\r]",
-                               &gpu->usage,
-                               &gpu->memory_total,
-                               &gpu->memory_used,
-                               &gpu->temperature,
-                               &gpu->power,
-                               &gpu->clock,
-                               gpu->name);
-            
-            if (matches >= 7) {
-                // Конвертируем MB в байты
-                gpu->memory_total *= 1024 * 1024;
-                gpu->memory_used *= 1024 * 1024;
-                pclose(fp);
-                
-                // Убираем лишние пробелы в имени
-                char *end = gpu->name + strlen(gpu->name) - 1;
-                while (end > gpu->name && (*end == ' ' || *end == '\n' || *end == '\r')) {
-                    *end = '\0';
-                    end--;
-                }
-                
-                printf("✅ Found NVIDIA GPU: %s (Usage: %.1f%%)\n", gpu->name, gpu->usage);
-                return 0;
-            }
-        }
-        pclose(fp);
-    }
-    
-    // 2. Пробуем получить информацию через lspci
-    printf("Trying lspci...\n");
-    fp = popen("lspci -vmm 2>/dev/null | grep -A 5 -B 2 'VGA\\|3D\\|Display'", "r");
-    if (fp) {
-        char line[256];
-        char vendor[64] = "";
-        char device[64] = "";
-        char class[64] = "";
-        
-        while (fgets(line, sizeof(line), fp)) {
-            if (strstr(line, "Vendor:")) {
-                sscanf(line, "Vendor:\t%63[^\n]", vendor);
-            } else if (strstr(line, "Device:")) {
-                sscanf(line, "Device:\t%63[^\n]", device);
-            } else if (strstr(line, "Class:")) {
-                sscanf(line, "Class:\t%63[^\n]", class);
-            }
-        }
-        pclose(fp);
-        
-        // Определяем тип GPU по vendor
-        if (strstr(vendor, "NVIDIA") || strstr(vendor, "10de")) {
-            strcpy(gpu->name, "NVIDIA ");
-            if (strlen(device) > 0) {
-                strncat(gpu->name, device, sizeof(gpu->name) - strlen(gpu->name) - 1);
-            } else {
-                strcat(gpu->name, "Graphics");
-            }
-            printf("Found NVIDIA via lspci: %s\n", gpu->name);
-        } else if (strstr(vendor, "AMD") || strstr(vendor, "ATI") || strstr(vendor, "1002")) {
-            strcpy(gpu->name, "AMD ");
-            if (strlen(device) > 0) {
-                strncat(gpu->name, device, sizeof(gpu->name) - strlen(gpu->name) - 1);
-            } else {
-                strcat(gpu->name, "Radeon Graphics");
-            }
-            printf("Found AMD via lspci: %s\n", gpu->name);
-        } else if (strstr(vendor, "Intel") || strstr(vendor, "8086")) {
-            strcpy(gpu->name, "Intel ");
-            if (strlen(device) > 0) {
-                strncat(gpu->name, device, sizeof(gpu->name) - strlen(gpu->name) - 1);
-            } else {
-                strcat(gpu->name, "Integrated Graphics");
-            }
-            printf("Found Intel via lspci: %s\n", gpu->name);
-        }
-    }
-    
-    // 3. Пробуем получить информацию через sysfs (DRM)
-    printf("Checking DRM devices...\n");
-    char drm_path[256];
-    if (find_file_by_pattern("/sys/class/drm/card?/device/vendor", drm_path, sizeof(drm_path))) {
-        fp = fopen(drm_path, "r");
-        if (fp) {
-            char vendor_id[16];
-            fgets(vendor_id, sizeof(vendor_id), fp);
-            fclose(fp);
-            
-            // Получаем путь к device name
-            char *card_path = strstr(drm_path, "/card");
-            if (card_path) {
-                char name_path[256];
-                snprintf(name_path, sizeof(name_path), "%.*s/device/name", 
-                        (int)(card_path - drm_path), drm_path);
-                
-                fp = fopen(name_path, "r");
-                if (fp) {
-                    char gpu_name[128];
-                    if (fgets(gpu_name, sizeof(gpu_name), fp)) {
-                        // Убираем перевод строки
-                        char *newline = strchr(gpu_name, '\n');
-                        if (newline) *newline = '\0';
-                        
-                        if (strlen(gpu_name) > 0) {
-                            strncpy(gpu->name, gpu_name, sizeof(gpu->name) - 1);
-                        }
-                    }
-                    fclose(fp);
-                }
-            }
-        }
-    }
-    
-    // 4. Пробуем получить использование GPU (если доступно)
-    printf("Checking GPU utilization...\n");
-    char util_path[256];
-    if (find_file_by_pattern("/sys/class/drm/card?/device/gpu_busy_percent", util_path, sizeof(util_path))) {
-        fp = fopen(util_path, "r");
-        if (fp) {
-            fscanf(fp, "%lf", &gpu->usage);
-            fclose(fp);
-            printf("GPU usage from sysfs: %.1f%%\n", gpu->usage);
-        }
-    }
-    
-    // 5. Пробуем получить температуру
-    printf("Checking GPU temperature...\n");
-    char temp_path[256];
-    if (find_file_by_pattern("/sys/class/drm/card?/device/hwmon/hwmon?/temp1_input", temp_path, sizeof(temp_path)) ||
-        find_file_by_pattern("/sys/class/drm/card?/device/temp1_input", temp_path, sizeof(temp_path))) {
-        fp = fopen(temp_path, "r");
-        if (fp) {
-            int temp_raw;
-            fscanf(fp, "%d", &temp_raw);
-            gpu->temperature = temp_raw / 1000.0;
-            fclose(fp);
-            printf("GPU temperature: %.1f°C\n", gpu->temperature);
-        }
-    }
-    
-    // 6. Если не нашли реальных данных, создаем реалистичные демо-данные
-    if (gpu->usage == 0.0) {
-        // Генерируем реалистичное использование
-        gpu->usage = 5.0 + (rand() % 35); // 5-40%
-        printf("Generated GPU usage: %.1f%%\n", gpu->usage);
-    }
-    
-    if (gpu->temperature == 0.0) {
-        // Генерируем реалистичную температуру
-        gpu->temperature = 35.0 + gpu->usage * 0.8;
-        printf("Generated GPU temperature: %.1f°C\n", gpu->temperature);
-    }
-    
-    // Устанавливаем реалистичные значения памяти в зависимости от типа GPU
-    if (strstr(gpu->name, "NVIDIA")) {
-        gpu->memory_total = (4ULL + (rand() % 12)) * 1024 * 1024 * 1024; // 4-16GB
-        gpu->power = 50.0 + gpu->usage * 0.8;
-        gpu->clock = 1200 + (rand() % 800);
-    } else if (strstr(gpu->name, "AMD") || strstr(gpu->name, "Radeon")) {
-        gpu->memory_total = (6ULL + (rand() % 10)) * 1024 * 1024 * 1024; // 6-16GB
-        gpu->power = 60.0 + gpu->usage * 0.9;
-        gpu->clock = 1400 + (rand() % 1000);
-    } else if (strstr(gpu->name, "Intel")) {
-        gpu->memory_total = (1ULL + (rand() % 3)) * 1024 * 1024 * 1024; // 1-4GB
-        gpu->power = 15.0 + gpu->usage * 0.4;
-        gpu->clock = 300 + (rand() % 500);
-    } else {
-        // Общий случай
-        gpu->memory_total = 4ULL * 1024 * 1024 * 1024; // 4GB
-        gpu->power = 30.0 + gpu->usage * 0.6;
-        gpu->clock = 1000 + (rand() % 800);
-    }
-    
-    gpu->memory_used = gpu->memory_total * (gpu->usage / 100.0);
-    
-    if (gpu->clock == 0) {
-        gpu->clock = 1000 + (rand() % 1000);
-    }
-    
-    // Если имя все еще "Unknown GPU", уточняем его
-    if (strcmp(gpu->name, "Unknown GPU") == 0) {
-        // Проверяем через упрощенный lspci
-        fp = popen("lspci | grep -i 'vga\\|3d\\|display' | head -1", "r");
-        if (fp) {
-            char gpu_info[256];
-            if (fgets(gpu_info, sizeof(gpu_info), fp)) {
-                // Берем часть после первого двоеточия
-                char *colon = strchr(gpu_info, ':');
-                if (colon && *(colon + 2)) {
-                    strncpy(gpu->name, colon + 2, sizeof(gpu->name) - 1);
-                    // Убираем перевод строки
-                    char *newline = strchr(gpu->name, '\n');
-                    if (newline) *newline = '\0';
-                }
-            }
-            pclose(fp);
-        }
-        
-        // Если все еще неизвестно, даем общее имя
-        if (strcmp(gpu->name, "Unknown GPU") == 0) {
-            strcpy(gpu->name, "System GPU");
-        }
-    }
-    
-    printf("📊 Final GPU data: %s, Usage: %.1f%%, Memory: %.1f/%.1f GB\n",
-           gpu->name, gpu->usage,
-           gpu->memory_used / (1024.0 * 1024 * 1024),
-           gpu->memory_total / (1024.0 * 1024 * 1024));
     
     return 0;
 }

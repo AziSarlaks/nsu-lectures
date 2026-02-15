@@ -7,7 +7,7 @@
 #define UPDATE_INTERVAL_MS 2000
 #define MAX_CONNECTIONS 10
 #define MAX_CORES 32
-#define HISTORY_SIZE 60  // Храним 60 точек (2 минуты при обновлении каждые 2 секунды)
+#define HISTORY_SIZE 60
 
 typedef struct {
     unsigned long long total;
@@ -54,7 +54,6 @@ typedef struct {
     char command_line[512];
 } ProcessInfo;
 
-// Структура для хранения истории
 typedef struct {
     double cpu_usage[HISTORY_SIZE];
     double memory_usage[HISTORY_SIZE];

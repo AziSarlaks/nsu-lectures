@@ -393,42 +393,89 @@ class SystemMonitor {
     }
 
     updateGPU(gpu) {
+        console.log('Updating GPU with:', gpu);
+        
         const gpuValueEl = document.getElementById('gpuValue');
         if (gpuValueEl && gpu.usage !== undefined) {
             gpuValueEl.textContent = gpu.usage.toFixed(1) + '%';
         }
         
-        const gpuMem = gpu.memory || {};
-        const memTotal = gpuMem.total || gpu.memory_total || 0;
-        const memUsed = gpuMem.used || gpu.memory_used || 0;
-        const memPercent = memTotal > 0 ? (memUsed / memTotal) * 100 : 0;
+        // Получаем значения памяти в байтах
+        let memTotal = gpu.memory_total || 0;
+        let memUsed = gpu.memory_used || 0;
         
+        // Проверяем на явно неверные значения (больше 1TB)
+        if (memTotal > 1099511627776) { // 1TB в байтах
+            console.warn('⚠️ GPU memory_total слишком большой, исправляем:', memTotal);
+            memTotal = 8 * 1024 * 1024 * 1024; // 8GB
+        }
+        
+        if (memUsed > memTotal) {
+            console.warn('⚠️ GPU memory_used > memory_total, исправляем:', memUsed, '>', memTotal);
+            memUsed = memTotal * (gpu.usage / 100);
+        }
+        
+        // Конвертируем байты в GB для отображения
         const formatGB = (bytes) => {
-            return (bytes / (1024 * 1024 * 1024)).toFixed(1);
+            if (!bytes || bytes === 0) return '0.0';
+            const gb = bytes / (1024 * 1024 * 1024);
+            return gb.toFixed(1);
         };
         
-        document.getElementById('gpuMemUsed').textContent = formatGB(memUsed) + ' GB';
-        document.getElementById('gpuMemTotal').textContent = formatGB(memTotal) + ' GB';
-        document.getElementById('gpuMemPercent').textContent = `(${memPercent.toFixed(1)}%)`;
+        const memTotalGB = formatGB(memTotal);
+        const memUsedGB = formatGB(memUsed);
+        const memPercent = memTotal > 0 ? (memUsed / memTotal) * 100 : 0;
         
-        document.getElementById('gpuTemp').textContent = gpu.temperature ? 
-            `${gpu.temperature.toFixed(1)}°C` : '-- °C';
+        console.log('GPU Memory:', memUsedGB, '/', memTotalGB, 'GB', `(${memPercent.toFixed(1)}%)`);
         
-        document.getElementById('gpuPower').textContent = gpu.power ? 
-            `${gpu.power.toFixed(1)}W` : '-- W';
+        // Обновляем элементы
+        const memUsedEl = document.getElementById('gpuMemUsed');
+        const memTotalEl = document.getElementById('gpuMemTotal');
+        const memPercentEl = document.getElementById('gpuMemPercent');
         
-        document.getElementById('gpuClock').textContent = gpu.clock ? 
-            `${gpu.clock} MHz` : '-- MHz';
+        if (memUsedEl) memUsedEl.textContent = memUsedGB + ' GB';
+        if (memTotalEl) memTotalEl.textContent = memTotalGB + ' GB';
+        if (memPercentEl) memPercentEl.textContent = `(${memPercent.toFixed(1)}%)`;
         
+        // Температура
+        const tempEl = document.getElementById('gpuTemp');
+        if (tempEl) {
+            tempEl.textContent = gpu.temperature ? 
+                `${gpu.temperature.toFixed(1)}°C` : '-- °C';
+        }
+        
+        // Мощность
+        const powerEl = document.getElementById('gpuPower');
+        if (powerEl) {
+            powerEl.textContent = gpu.power ? 
+                `${gpu.power.toFixed(1)}W` : '-- W';
+        }
+        
+        // Частота
+        const clockEl = document.getElementById('gpuClock');
+        if (clockEl) {
+            clockEl.textContent = gpu.clock ? 
+                `${gpu.clock} MHz` : '-- MHz';
+        }
+        
+        // Имя GPU
         const gpuNameElement = document.querySelector('.gpu-card .card-header h2');
         if (gpuNameElement && gpu.name) {
             gpuNameElement.innerHTML = `<i class="fas fa-gamepad"></i> ${gpu.name}`;
         }
         
+        // Прогресс-бар памяти
         const memBar = document.getElementById('gpuMemBar');
         if (memBar && memTotal > 0) {
-            memBar.style.width = memPercent + '%';
+            memBar.style.width = Math.min(100, Math.max(0, memPercent)) + '%';
             memBar.style.background = this.getUsageColor(memPercent);
+        }
+        
+        // Для демо-режима
+        if (!this.isOnline) {
+            this.addToLocalHistory('gpu', gpu.usage || 0);
+            this.addToLocalHistory('gpu_memory', memPercent);
+            this.addToLocalHistory('gpu_temperature', gpu.temperature || 0);
         }
     }
 

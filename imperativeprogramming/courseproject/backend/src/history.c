@@ -15,7 +15,6 @@ void add_to_history(HistoryData *history, double cpu_usage, double memory_usage,
                     double gpu_usage, double gpu_memory, double gpu_temp) {
     time_t now = time(NULL);
     
-    // Добавляем данные в историю
     history->cpu_usage[history->index] = cpu_usage;
     history->memory_usage[history->index] = memory_usage;
     history->gpu_usage[history->index] = gpu_usage;
@@ -23,7 +22,6 @@ void add_to_history(HistoryData *history, double cpu_usage, double memory_usage,
     history->gpu_temperature[history->index] = gpu_temp;
     history->timestamps[history->index] = now;
     
-    // Обновляем индекс
     history->index = (history->index + 1) % HISTORY_SIZE;
     if (history->count < HISTORY_SIZE) {
         history->count++;
@@ -37,7 +35,6 @@ void get_history_json(char *buffer, int buffer_size, HistoryData *history) {
         "{\n"
         "  \"cpu\": [");
     
-    // Добавляем историю CPU
     for (int i = 0; i < history->count; i++) {
         int idx = (history->index - history->count + i + HISTORY_SIZE) % HISTORY_SIZE;
         if (i > 0) offset += snprintf(buffer + offset, buffer_size - offset, ",");
@@ -48,7 +45,6 @@ void get_history_json(char *buffer, int buffer_size, HistoryData *history) {
         "],\n"
         "  \"memory\": [");
     
-    // Добавляем историю памяти
     for (int i = 0; i < history->count; i++) {
         int idx = (history->index - history->count + i + HISTORY_SIZE) % HISTORY_SIZE;
         if (i > 0) offset += snprintf(buffer + offset, buffer_size - offset, ",");
@@ -59,7 +55,6 @@ void get_history_json(char *buffer, int buffer_size, HistoryData *history) {
         "],\n"
         "  \"gpu\": [");
     
-    // Добавляем историю GPU
     for (int i = 0; i < history->count; i++) {
         int idx = (history->index - history->count + i + HISTORY_SIZE) % HISTORY_SIZE;
         if (i > 0) offset += snprintf(buffer + offset, buffer_size - offset, ",");
@@ -70,7 +65,6 @@ void get_history_json(char *buffer, int buffer_size, HistoryData *history) {
         "],\n"
         "  \"gpu_memory\": [");
     
-    // Добавляем историю памяти GPU
     for (int i = 0; i < history->count; i++) {
         int idx = (history->index - history->count + i + HISTORY_SIZE) % HISTORY_SIZE;
         if (i > 0) offset += snprintf(buffer + offset, buffer_size - offset, ",");
@@ -81,7 +75,6 @@ void get_history_json(char *buffer, int buffer_size, HistoryData *history) {
         "],\n"
         "  \"gpu_temperature\": [");
     
-    // Добавляем историю температуры GPU
     for (int i = 0; i < history->count; i++) {
         int idx = (history->index - history->count + i + HISTORY_SIZE) % HISTORY_SIZE;
         if (i > 0) offset += snprintf(buffer + offset, buffer_size - offset, ",");
@@ -92,7 +85,6 @@ void get_history_json(char *buffer, int buffer_size, HistoryData *history) {
         "],\n"
         "  \"timestamps\": [");
     
-    // Добавляем метки времени
     for (int i = 0; i < history->count; i++) {
         int idx = (history->index - history->count + i + HISTORY_SIZE) % HISTORY_SIZE;
         if (i > 0) offset += snprintf(buffer + offset, buffer_size - offset, ",");
@@ -104,7 +96,6 @@ void get_history_json(char *buffer, int buffer_size, HistoryData *history) {
         "  \"count\": %d\n"
         "}", history->count);
     
-    // Гарантируем завершение строки
     if (offset >= buffer_size) {
         buffer[buffer_size - 1] = '\0';
     }
