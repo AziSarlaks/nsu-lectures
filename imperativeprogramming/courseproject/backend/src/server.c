@@ -324,7 +324,7 @@ void handle_client(int client_socket) {
                 "</body>\n"
                 "</html>";
             
-            char not_found_buffer[1024];
+            char not_found_buffer[2048];
             snprintf(not_found_buffer, sizeof(not_found_buffer), not_found, path);
             send_http_response(client_socket, 404, "text/html; charset=utf-8", not_found_buffer);
         }
@@ -354,7 +354,7 @@ void handle_client(int client_socket) {
             "</body>\n"
             "</html>";
         
-        char not_allowed_buffer[1024];
+        char not_allowed_buffer[2048];
         snprintf(not_allowed_buffer, sizeof(not_allowed_buffer), not_allowed, method);
         send_http_response(client_socket, 405, "text/html; charset=utf-8", not_allowed_buffer);
     }

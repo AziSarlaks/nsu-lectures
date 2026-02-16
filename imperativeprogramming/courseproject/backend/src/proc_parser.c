@@ -167,7 +167,7 @@ int read_gpu_info(GPUInfo *gpu) {
     printf("🔍 Searching for GPU information...\n");
     
     // Пробуем nvidia-smi
-    FILE *fp = popen("nvidia-smi --query-gpu=utilization.gpu,memory.total,memory.used,temperature.gpu,power.draw,clocks.gr.gpu,name --format=csv,noheader,nounits 2>/dev/null", "r");
+    FILE *fp = popen("nvidia-smi --query-gpu=utilization.gpu,memory.total,memory.used,temperature.gpu,power.draw,clocks.current.graphics,name --format=csv,noheader,nounits 2>/dev/null", "r");
     
     if (fp) {
         char line[512];
@@ -307,7 +307,7 @@ int read_gpu_info(GPUInfo *gpu) {
     strcpy(gpu->name, stable_name);
     
     // Пробуем получить динамические данные через другой запрос
-    fp = popen("nvidia-smi --query-gpu=utilization.gpu,memory.used,temperature.gpu,power.draw,clocks.gr.gpu --format=csv,noheader,nounits 2>/dev/null", "r");
+    fp = popen("nvidia-smi --query-gpu=utilization.gpu,memory.used,temperature.gpu,power.draw,clocks.current.graphics --format=csv,noheader,nounits 2>/dev/null", "r");
     if (fp) {
         char line[256];
         if (fgets(line, sizeof(line), fp)) {

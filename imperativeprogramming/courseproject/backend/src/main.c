@@ -8,6 +8,7 @@
 volatile sig_atomic_t running = 1;
 
 void signal_handler(int sig) {
+    (void)sig;
     running = 0;
     printf("\nShutting down server...\n");
 }

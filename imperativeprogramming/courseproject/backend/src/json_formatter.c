@@ -36,7 +36,7 @@ static void json_sanitize_string(const char *input, char *output, int max_len) {
                 else if (c == '\t') output[j++] = 't';
             }
         }
-        else if (c >= 128 && c <= 255) {
+        else if (c > 127) {
             output[j++] = c;
         }
         i++;
