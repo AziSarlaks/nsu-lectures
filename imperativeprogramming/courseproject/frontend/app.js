@@ -23,6 +23,7 @@ class SystemMonitor {
 
     init() {
         this.setupUI();
+        this.initializeGauges(); 
         this.setupEventListeners();
         this.tryInitializeCharts();
         this.testConnection();
@@ -274,31 +275,42 @@ class SystemMonitor {
     }
 
     updateUI(data) {
-        console.log('Updating UI with data...');
+        console.log('Updating UI with data:', data);
         
         try {
             // CPU
+            let cpuPercent = 0;
             if (data.cpu) {
                 this.updateCPU(data.cpu);
+                cpuPercent = data.cpu.usage || 0;
             }
             
             // Memory
+            let memPercent = 0;
             if (data.memory) {
                 this.updateMemory(data.memory);
+                memPercent = data.memory.percentage || 0;
             }
             
             // GPU
+            let gpuPercent = 0;
             if (data.gpu) {
                 this.updateGPU(data.gpu);
+                gpuPercent = data.gpu.usage || 0;
             } else {
-                console.warn('No GPU data in response');
                 this.updateGPU(this.generateDemoGPU());
             }
+            
+            // Update gauges
+            this.updateGauges(cpuPercent, memPercent, gpuPercent);
             
             // Processes
             if (data.processes) {
                 this.updateProcesses(data.processes);
             }
+            
+            // Обновляем время
+            this.updateLastUpdate();
             
         } catch (error) {
             console.error('Error updating UI:', error);
@@ -1181,6 +1193,109 @@ class SystemMonitor {
             console.log(`🎮 Updated GPU chart with ${this.historyData.timestamps.length} points`);
         }
     }
+
+    initializeGauges() {
+        // CPU Gauge
+        const cpuCtx = document.getElementById('cpuGauge');
+        if (cpuCtx) {
+            this.cpuGauge = new Chart(cpuCtx.getContext('2d'), {
+                type: 'doughnut',
+                data: {
+                    datasets: [{
+                        data: [0, 100],
+                        backgroundColor: ['#3498db', '#2c3e50'],
+                        borderWidth: 0,
+                        borderRadius: 10
+                    }]
+                },
+                options: {
+                    cutout: '70%',
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        tooltip: { enabled: false },
+                        legend: { display: false }
+                    }
+                }
+            });
+        }
+        
+        // Memory Gauge
+        const memCtx = document.getElementById('memoryGauge');
+        if (memCtx) {
+            this.memoryGauge = new Chart(memCtx.getContext('2d'), {
+                type: 'doughnut',
+                data: {
+                    datasets: [{
+                        data: [0, 100],
+                        backgroundColor: ['#2ecc71', '#2c3e50'],
+                        borderWidth: 0,
+                        borderRadius: 10
+                    }]
+                },
+                options: {
+                    cutout: '70%',
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        tooltip: { enabled: false },
+                        legend: { display: false }
+                    }
+                }
+            });
+        }
+        
+        // GPU Gauge
+        const gpuCtx = document.getElementById('gpuGauge');
+        if (gpuCtx) {
+            this.gpuGauge = new Chart(gpuCtx.getContext('2d'), {
+                type: 'doughnut',
+                data: {
+                    datasets: [{
+                        data: [0, 100],
+                        backgroundColor: ['#9b59b6', '#2c3e50'],
+                        borderWidth: 0,
+                        borderRadius: 10
+                    }]
+                },
+                options: {
+                    cutout: '70%',
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        tooltip: { enabled: false },
+                        legend: { display: false }
+                    }
+                }
+            });
+        }
+    }
+
+    updateGauges(cpuPercent, memPercent, gpuPercent) {
+        // CPU Gauge
+        if (this.cpuGauge) {
+            this.cpuGauge.data.datasets[0].data = [cpuPercent, 100 - cpuPercent];
+            this.cpuGauge.update();
+            document.getElementById('cpuGaugeCenter').innerHTML = 
+                `${cpuPercent.toFixed(1)}%<small>CPU</small>`;
+        }
+        
+        // Memory Gauge
+        if (this.memoryGauge) {
+            this.memoryGauge.data.datasets[0].data = [memPercent, 100 - memPercent];
+            this.memoryGauge.update();
+            document.getElementById('memoryGaugeCenter').innerHTML = 
+                `${memPercent.toFixed(1)}%<small>RAM</small>`;
+        }
+        
+        // GPU Gauge
+        if (this.gpuGauge) {
+            this.gpuGauge.data.datasets[0].data = [gpuPercent, 100 - gpuPercent];
+            this.gpuGauge.update();
+            document.getElementById('gpuGaugeCenter').innerHTML = 
+                `${gpuPercent.toFixed(1)}%<small>GPU</small>`;
+        }
+    }
 }
 
 // Запускаем при загрузке DOM
@@ -1205,3 +1320,4 @@ document.addEventListener('DOMContentLoaded', () => {
         window.sysmon = new SystemMonitor();
     }
 });
+
