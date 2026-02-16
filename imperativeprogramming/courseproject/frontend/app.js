@@ -323,11 +323,18 @@ class SystemMonitor {
         const container = document.getElementById('coresContainer');
         if (!container) return;
         
+        console.log(`Updating ${cores.length} cores`);
+        
+        // Очищаем контейнер
         container.innerHTML = '';
         
-        const displayCores = cores.slice(0, 24);
+        if (!cores || cores.length === 0) {
+            container.innerHTML = '<div class="no-cores">No CPU core data available</div>';
+            return;
+        }
         
-        displayCores.forEach((core, i) => {
+        // Показываем все ядра (без ограничения)
+        cores.forEach((core, i) => {
             const usage = core.usage || 0;
             const color = this.getUsageColor(usage);
             
@@ -336,7 +343,7 @@ class SystemMonitor {
             coreEl.innerHTML = `
                 <div class="core-header">
                     <span class="core-name">C${i.toString().padStart(2, '0')}</span>
-                    <span class="core-value">${usage.toFixed(1)}%</span>
+                    <span class="core-value" style="color: ${color}">${usage.toFixed(1)}%</span>
                 </div>
                 <div class="core-bar">
                     <div class="bar-fill" style="width: ${usage}%; background: ${color}"></div>
@@ -345,9 +352,13 @@ class SystemMonitor {
             container.appendChild(coreEl);
         });
         
-        if (displayCores.length === 0) {
-            container.innerHTML = '<div class="no-cores">No CPU core data</div>';
-        }
+        // Добавляем информацию о количестве ядер
+        const infoEl = document.createElement('div');
+        infoEl.className = 'core-info';
+        infoEl.textContent = `Total: ${cores.length} cores`;
+        container.appendChild(infoEl);
+        
+        console.log(`Rendered ${cores.length} cores in container`);
     }
 
     updateMemory(mem) {

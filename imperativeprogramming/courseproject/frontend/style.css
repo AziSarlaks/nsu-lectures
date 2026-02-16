@@ -278,7 +278,9 @@ header {
 
 /* CPU Cores */
 .cpu-cores-section {
-    padding: 0 24px 24px;
+    padding: 20px 24px 24px;
+    border-top: 1px solid var(--border);
+    margin-top: 10px;
 }
 
 .cpu-cores-section h3 {
@@ -292,8 +294,30 @@ header {
 
 .cores-grid {
     display: grid;
-    grid-template-columns: repeat(8, 1fr);
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
     gap: 12px;
+    max-height: 300px;
+    overflow-y: auto;
+    padding-right: 10px;
+}
+
+/* Стилизация скроллбара */
+.cores-grid::-webkit-scrollbar {
+    width: 8px;
+}
+
+.cores-grid::-webkit-scrollbar-track {
+    background: var(--bg-secondary);
+    border-radius: 4px;
+}
+
+.cores-grid::-webkit-scrollbar-thumb {
+    background: var(--text-secondary);
+    border-radius: 4px;
+}
+
+.cores-grid::-webkit-scrollbar-thumb:hover {
+    background: var(--text-primary);
 }
 
 .core-item {
@@ -301,6 +325,7 @@ header {
     padding: 12px;
     border-radius: 12px;
     transition: all 0.2s ease;
+    min-width: 0; /* Предотвращает переполнение */
 }
 
 .core-item:hover {
@@ -313,17 +338,20 @@ header {
     justify-content: space-between;
     align-items: center;
     margin-bottom: 8px;
+    gap: 8px;
 }
 
 .core-name {
     font-size: 12px;
     font-weight: 600;
     color: var(--text-secondary);
+    white-space: nowrap;
 }
 
 .core-value {
     font-size: 14px;
     font-weight: 700;
+    white-space: nowrap;
 }
 
 .core-bar {
@@ -335,7 +363,47 @@ header {
 
 .bar-fill {
     height: 100%;
-    transition: width 0.5s ease;
+    transition: width 0.3s ease;
+}
+
+.core-info {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 10px;
+    color: var(--text-secondary);
+    font-size: 13px;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    margin-top: 5px;
+}
+
+/* Сообщение когда нет данных */
+.no-cores {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 20px;
+    color: var(--text-secondary);
+    font-style: italic;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+}
+
+/* Адаптивность */
+@media (max-width: 1200px) {
+    .cores-grid {
+        grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+    }
+}
+
+@media (max-width: 768px) {
+    .cores-grid {
+        grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+        max-height: 250px;
+    }
+    
+    .core-item {
+        padding: 8px;
+    }
 }
 
 /* Memory Card */
