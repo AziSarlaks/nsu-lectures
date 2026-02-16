@@ -10,6 +10,98 @@
 #include "config.h"
 #include "proc_parser.h"
 
+double get_cpu_temperature() {
+    double temp = 0.0;
+    
+    // Пробуем разные источники температуры
+    const char *temp_paths[] = {
+        "/sys/class/thermal/thermal_zone0/temp",
+        "/sys/class/hwmon/hwmon0/temp1_input",
+        "/sys/class/hwmon/hwmon1/temp1_input",
+        "/sys/devices/platform/coretemp.0/hwmon/hwmon*/temp1_input"
+    };
+    
+    for (int i = 0; i < 4; i++) {
+        FILE *fp = fopen(temp_paths[i], "r");
+        if (fp) {
+            int temp_raw;
+            if (fscanf(fp, "%d", &temp_raw) == 1) {
+                // Обычно температура в миллиградусах Цельсия
+                temp = temp_raw / 1000.0;
+                fclose(fp);
+                printf("CPU temperature from %s: %.1f°C\n", temp_paths[i], temp);
+                return temp;
+            }
+            fclose(fp);
+        }
+    }
+    
+    // Пробуем через sensors команду
+    FILE *fp = popen("sensors | grep -i 'core\\|cpu' | grep -oP '\\+\\d+\\.\\d+°C' | head -1 | tr -d '+°C'", "r");
+    if (fp) {
+        if (fscanf(fp, "%lf", &temp) == 1) {
+            pclose(fp);
+            printf("CPU temperature from sensors: %.1f°C\n", temp);
+            return temp;
+        }
+        pclose(fp);
+    }
+    
+    printf("Could not get CPU temperature, using default\n");
+    return 45.0; // Значение по умолчанию
+}
+
+// Функция для получения частоты CPU
+unsigned long get_cpu_frequency() {
+    unsigned long freq = 0;
+    
+    // Пробуем получить текущую частоту
+    FILE *fp = fopen("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq", "r");
+    if (fp) {
+        if (fscanf(fp, "%lu", &freq) == 1) {
+            // Частота в kHz, конвертируем в MHz
+            freq = freq / 1000;
+            fclose(fp);
+            printf("CPU frequency from scaling_cur_freq: %lu MHz\n", freq);
+            return freq;
+        }
+        fclose(fp);
+    }
+    
+    // Пробуем через /proc/cpuinfo
+    fp = fopen("/proc/cpuinfo", "r");
+    if (fp) {
+        char line[256];
+        while (fgets(line, sizeof(line), fp)) {
+            if (strstr(line, "cpu MHz")) {
+                double mhz;
+                sscanf(line, "cpu MHz : %lf", &mhz);
+                freq = (unsigned long)mhz;
+                fclose(fp);
+                printf("CPU frequency from cpuinfo: %lu MHz\n", freq);
+                return freq;
+            }
+        }
+        fclose(fp);
+    }
+    
+    // Пробуем через lscpu
+    fp = popen("lscpu | grep 'CPU MHz' | grep -oP '\\d+\\.\\d+' | head -1", "r");
+    if (fp) {
+        double mhz;
+        if (fscanf(fp, "%lf", &mhz) == 1) {
+            freq = (unsigned long)mhz;
+            pclose(fp);
+            printf("CPU frequency from lscpu: %lu MHz\n", freq);
+            return freq;
+        }
+        pclose(fp);
+    }
+    
+    printf("Could not get CPU frequency, using default\n");
+    return 2400; // Значение по умолчанию
+}
+
 int get_cpu_cores_count() {
     FILE *fp = fopen("/proc/cpuinfo", "r");
     if (!fp) return 4;
@@ -31,9 +123,13 @@ int read_cpu_stats(CPUStats *cpu, CPUStats *cores, int *cores_count) {
     FILE *fp = fopen("/proc/stat", "r");
     if (!fp) {
         cpu->usage_percent = 25.0;
+        cpu->temperature = 45.0;
+        cpu->frequency = 2400;
         *cores_count = 4;
         for (int i = 0; i < 4; i++) {
             cores[i].usage_percent = 20.0 + i * 5.0;
+            cores[i].temperature = 45.0 + i * 2.0;
+            cores[i].frequency = 2400 + i * 100;
         }
         return 0;
     }
@@ -53,6 +149,10 @@ int read_cpu_stats(CPUStats *cpu, CPUStats *cores, int *cores_count) {
             cpu->total = cpu->user + cpu->nice + cpu->system + cpu->idle +
                         cpu->iowait + cpu->irq + cpu->softirq + cpu->steal;
             cpu->usage_percent = 0.0;
+            
+            // Добавляем температуру и частоту для общего CPU
+            cpu->temperature = get_cpu_temperature();
+            cpu->frequency = get_cpu_frequency();
         }
         else if (strncmp(line, "cpu", 3) == 0 && isdigit(line[3])) {
             if (total_cores_found < MAX_CORES) {
@@ -70,6 +170,11 @@ int read_cpu_stats(CPUStats *cpu, CPUStats *cores, int *cores_count) {
                     cores[total_cores_found].softirq + cores[total_cores_found].steal;
                 cores[total_cores_found].usage_percent = 0.0;
                 
+                // Для каждого ядра можно получить индивидуальную температуру/частоту
+                // Но пока используем общие значения
+                cores[total_cores_found].temperature = cpu->temperature;
+                cores[total_cores_found].frequency = cpu->frequency;
+                
                 total_cores_found++;
             }
         }
@@ -78,6 +183,7 @@ int read_cpu_stats(CPUStats *cpu, CPUStats *cores, int *cores_count) {
     fclose(fp);
     *cores_count = total_cores_found;
     
+    // Если не нашли отдельные ядра, создаем на основе общего
     if (*cores_count == 0) {
         *cores_count = get_cpu_cores_count();
         if (*cores_count > MAX_CORES) *cores_count = MAX_CORES;
@@ -97,6 +203,8 @@ int read_cpu_stats(CPUStats *cpu, CPUStats *cores, int *cores_count) {
                            cores[i].idle + cores[i].iowait + cores[i].irq +
                            cores[i].softirq + cores[i].steal;
             cores[i].usage_percent = 0.0;
+            cores[i].temperature = cpu->temperature;
+            cores[i].frequency = cpu->frequency;
         }
     }
     

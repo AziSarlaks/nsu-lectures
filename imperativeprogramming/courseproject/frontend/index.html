@@ -228,9 +228,13 @@
                     <div class="table-footer">
                         <span id="processCount">0 processes</span>
                         <div class="pagination">
-                            <button class="btn-prev"><i class="fas fa-chevron-left"></i></button>
-                            <span class="page-info">Page 1</span>
-                            <button class="btn-next"><i class="fas fa-chevron-right"></i></button>
+                            <button id="prevPage" class="btn-prev" disabled>
+                                <i class="fas fa-chevron-left"></i>
+                            </button>
+                            <span id="pageInfo" class="page-info">Page 1</span>
+                            <button id="nextPage" class="btn-next" disabled>
+                                <i class="fas fa-chevron-right"></i>
+                            </button>
                         </div>
                     </div>
                 </div>

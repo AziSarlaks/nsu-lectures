@@ -96,10 +96,14 @@ void format_system_info_json(char *buffer, int buffer_size,
         "  \"cpu\": {\n"
         "    \"usage\": %.1f,\n"
         "    \"cores_count\": %d,\n"
+        "    \"temperature\": %.1f,\n"
+        "    \"frequency\": %lu,\n"
         "    \"cores\": [",
         now,
         cpu->usage_percent,
-        cores_count);
+        cores_count,
+        cpu->temperature,
+        cpu->frequency);
     
     if (offset == 0) {
         snprintf(buffer, buffer_size, "{\"error\":\"buffer overflow at start\"}");

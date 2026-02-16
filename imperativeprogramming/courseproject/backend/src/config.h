@@ -30,6 +30,8 @@ typedef struct {
     double guest_nice;
     double total;
     double usage_percent;
+    double temperature;
+    unsigned long frequency;
 } CPUStats;
 
 typedef struct {

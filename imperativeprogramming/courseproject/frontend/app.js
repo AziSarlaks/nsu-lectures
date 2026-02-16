@@ -18,6 +18,9 @@ class SystemMonitor {
         this.retryDelay = 5000; // Задержка между повторными попытками
         this.maxRetries = 3; // Максимальное количество попыток
         this.currentRetry = 0;
+        this.currentPage = 1;
+        this.processesPerPage = 10;
+        this.allProcesses = [];
         this.init();
     }
 
@@ -33,6 +36,109 @@ class SystemMonitor {
         console.log('Setting up UI...');
         this.updateConnectionStatus('testing', 'Testing connection (timeout: 10s)...');
         this.createLoadingIndicator();
+    }
+
+    updateProcesses(processes) {
+        this.allProcesses = processes;
+        this.renderProcessesPage(1);
+    }
+
+    renderProcessesPage(page) {
+        const tbody = document.getElementById('processTableBody');
+        if (!tbody) return;
+        
+        this.currentPage = page;
+        const startIndex = (page - 1) * this.processesPerPage;
+        const endIndex = Math.min(startIndex + this.processesPerPage, this.allProcesses.length);
+        const pageProcesses = this.allProcesses.slice(startIndex, endIndex);
+        
+        // Сортируем по выбранному критерию
+        const sortBy = document.getElementById('sortBy')?.value || 'cpu';
+        const sorted = [...pageProcesses].sort((a, b) => {
+            if (sortBy === 'cpu') return (b.cpu || 0) - (a.cpu || 0);
+            if (sortBy === 'memory') return (b.memory || 0) - (a.memory || 0);
+            return (a.name || '').localeCompare(b.name || '');
+        });
+        
+        // Очищаем таблицу
+        tbody.innerHTML = '';
+        
+        // Добавляем процессы
+        sorted.forEach((proc) => {
+            const cpu = proc.cpu || 0;
+            const memory = proc.memory || 0;
+            const cpuColor = this.getUsageColor(cpu);
+            
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td class="pid">${proc.pid || '?'}</td>
+                <td class="process-name">
+                    <span class="process-icon">${(proc.name || '?').charAt(0).toUpperCase()}</span>
+                    ${proc.name || 'Unknown'}
+                </td>
+                <td><span class="status ${this.getProcessStateClass(proc.state)}">${proc.state || '?'}</span></td>
+                <td><span class="cpu-value" style="color: ${cpuColor}">${cpu.toFixed(1)}%</span></td>
+                <td>${this.formatBytes(memory)}</td>
+                <td class="command" title="${proc.command || ''}">
+                    ${this.truncateText(proc.command || '', 40)}
+                </td>
+            `;
+            
+            tbody.appendChild(row);
+        });
+        
+        // Если нет процессов на странице
+        if (sorted.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="loading">No processes found</td></tr>';
+        }
+        
+        // Обновляем информацию о странице
+        const totalPages = Math.ceil(this.allProcesses.length / this.processesPerPage);
+        document.getElementById('processCount').textContent = 
+            `${this.allProcesses.length} processes (Page ${page}/${totalPages})`;
+        
+        // Обновляем состояние кнопок пагинации
+        document.querySelector('.btn-prev').disabled = page <= 1;
+        document.querySelector('.btn-next').disabled = page >= totalPages;
+    }
+
+    setupEventListeners() {
+        // ... существующий код ...
+        
+        // Пагинация
+        document.querySelector('.btn-prev')?.addEventListener('click', () => {
+            if (this.currentPage > 1) {
+                this.renderProcessesPage(this.currentPage - 1);
+            }
+        });
+        
+        document.querySelector('.btn-next')?.addEventListener('click', () => {
+            const totalPages = Math.ceil(this.allProcesses.length / this.processesPerPage);
+            if (this.currentPage < totalPages) {
+                this.renderProcessesPage(this.currentPage + 1);
+            }
+        });
+        
+        // Обновление при изменении сортировки
+        document.getElementById('sortBy')?.addEventListener('change', () => {
+            this.renderProcessesPage(this.currentPage);
+        });
+        
+        // Поиск процессов
+        document.getElementById('searchProcess')?.addEventListener('input', (e) => {
+            const searchTerm = e.target.value.toLowerCase();
+            const filtered = this.allProcesses.filter(proc => 
+                (proc.name && proc.name.toLowerCase().includes(searchTerm)) ||
+                (proc.command && proc.command.toLowerCase().includes(searchTerm)) ||
+                (proc.pid && proc.pid.toString().includes(searchTerm))
+            );
+            
+            // Временно заменяем все процессы отфильтрованными
+            const tempProcesses = this.allProcesses;
+            this.allProcesses = filtered;
+            this.renderProcessesPage(1);
+            this.allProcesses = tempProcesses; // Восстанавливаем для следующего поиска
+        });
     }
 
     createLoadingIndicator() {
@@ -318,17 +424,45 @@ class SystemMonitor {
     }
 
     updateCPU(cpu) {
+        // Обновляем общее использование CPU
         const cpuValueEl = document.getElementById('cpuValue');
         if (cpuValueEl && cpu.usage !== undefined) {
             cpuValueEl.textContent = cpu.usage.toFixed(1) + '%';
         }
         
+        // Обновляем количество ядер
         const cpuCoresEl = document.getElementById('cpuCores');
         if (cpuCoresEl && cpu.cores_count !== undefined) {
             cpuCoresEl.textContent = cpu.cores_count;
         }
         
+        // Обновляем температуру
+        const cpuTempEl = document.getElementById('cpuTemp');
+        if (cpuTempEl) {
+            if (cpu.temperature && cpu.temperature > 0) {
+                cpuTempEl.textContent = cpu.temperature.toFixed(1) + '°C';
+            } else {
+                cpuTempEl.textContent = '-- °C';
+            }
+        }
+        
+        // Обновляем частоту
+        const cpuFreqEl = document.getElementById('cpuFreq');
+        if (cpuFreqEl) {
+            if (cpu.frequency && cpu.frequency > 0) {
+                cpuFreqEl.textContent = cpu.frequency + ' MHz';
+            } else {
+                cpuFreqEl.textContent = '-- MHz';
+            }
+        }
+        
+        // Обновляем ядра
         this.updateCores(cpu.cores || []);
+        
+        // Для демо-режима
+        if (!this.isOnline) {
+            this.addToLocalHistory('cpu', cpu.usage || 0);
+        }
     }
 
     updateCores(cores) {
@@ -661,10 +795,19 @@ class SystemMonitor {
     }
 
     generateDemoData() {
+        const cpuPercent = 20 + Math.random() * 60;
+        const cpuTemp = 40 + cpuPercent * 0.5; // Температура зависит от нагрузки
+        const cpuFreq = 2000 + cpuPercent * 20; // Частота зависит от нагрузки
+        
+        const memPercent = 30 + Math.random() * 50;
+        const gpuPercent = 15 + Math.random() * 70;
+        
         const demoData = {
             cpu: {
-                usage: 20 + Math.random() * 60,
+                usage: cpuPercent,
                 cores_count: 8,
+                temperature: cpuTemp,
+                frequency: cpuFreq,
                 cores: Array.from({length: 8}, (_, i) => ({
                     core: i,
                     usage: 10 + Math.random() * 70
@@ -672,12 +815,12 @@ class SystemMonitor {
             },
             memory: {
                 total: 16 * 1024 * 1024 * 1024,
-                used: (16 * 1024 * 1024 * 1024) * (0.3 + Math.random() * 0.5),
-                free: (16 * 1024 * 1024 * 1024) * (0.2 + Math.random() * 0.3),
-                cached: (16 * 1024 * 1024 * 1024) * (0.05 + Math.random() * 0.1),
-                percentage: 30 + Math.random() * 50
+                used: (16 * 1024 * 1024 * 1024) * (memPercent / 100),
+                free: (16 * 1024 * 1024 * 1024) * ((100 - memPercent) / 100),
+                cached: (16 * 1024 * 1024 * 1024) * 0.15,
+                percentage: memPercent
             },
-            gpu: this.generateDemoGPU(),
+            gpu: this.generateDemoGPU(gpuPercent),
             processes: this.generateDemoProcesses()
         };
         
