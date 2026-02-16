@@ -351,44 +351,98 @@ class SystemMonitor {
     }
 
     updateMemory(mem) {
-        const memValueEl = document.getElementById('memoryValue');
-        if (memValueEl && mem.percentage !== undefined) {
-            memValueEl.textContent = mem.percentage.toFixed(1) + '%';
-        }
+        console.log('Updating memory with:', mem);
         
+        // Получаем значения в байтах
+        const memTotal = mem.total || 0;
+        const memUsed = mem.used || 0;
+        const memFree = mem.free || 0;
+        const memCached = mem.cached || 0;
+        const memPercentage = mem.percentage || 0;
+        
+        console.log('Memory values (bytes):', {
+            total: memTotal,
+            used: memUsed,
+            free: memFree,
+            cached: memCached,
+            percentage: memPercentage
+        });
+        
+        // Форматируем байты в GB
         const formatGB = (bytes) => {
+            if (!bytes || bytes === 0) return '0.0';
             return (bytes / (1024 * 1024 * 1024)).toFixed(1);
         };
         
-        if (mem.total !== undefined) {
-            document.getElementById('memTotal').textContent = formatGB(mem.total) + ' GB';
-        }
-        if (mem.used !== undefined) {
-            document.getElementById('memUsed').textContent = formatGB(mem.used) + ' GB';
-        }
-        if (mem.free !== undefined) {
-            document.getElementById('memFree').textContent = formatGB(mem.free) + ' GB';
-        }
-        if (mem.cached !== undefined) {
-            document.getElementById('memCached').textContent = formatGB(mem.cached) + ' GB';
+        const memTotalGB = formatGB(memTotal);
+        const memUsedGB = formatGB(memUsed);
+        const memFreeGB = formatGB(memFree);
+        const memCachedGB = formatGB(memCached);
+        
+        console.log('Memory values (GB):', {
+            total: memTotalGB,
+            used: memUsedGB,
+            free: memFreeGB,
+            cached: memCachedGB,
+            percentage: memPercentage.toFixed(1)
+        });
+        
+        // Обновляем значение основного индикатора
+        const memValueEl = document.getElementById('memoryValue');
+        if (memValueEl) {
+            memValueEl.textContent = memPercentage.toFixed(1) + '%';
         }
         
-        if (mem.total > 0) {
-            const usedPercent = (mem.used / mem.total) * 100;
-            const cachedPercent = (mem.cached / mem.total) * 100;
+        // Обновляем детали
+        const memTotalEl = document.getElementById('memTotal');
+        const memUsedEl = document.getElementById('memUsed');
+        const memFreeEl = document.getElementById('memFree');
+        const memCachedEl = document.getElementById('memCached');
+        
+        if (memTotalEl) memTotalEl.textContent = memTotalGB + ' GB';
+        if (memUsedEl) memUsedEl.textContent = memUsedGB + ' GB';
+        if (memFreeEl) memFreeEl.textContent = memFreeGB + ' GB';
+        if (memCachedEl) memCachedEl.textContent = memCachedGB + ' GB';
+        
+        // Обновляем прогресс-бар
+        if (memTotal > 0) {
+            const usedPercent = (memUsed / memTotal) * 100;
+            const cachedPercent = (memCached / memTotal) * 100;
+            
+            console.log('Progress bar:', {
+                usedPercent: usedPercent.toFixed(1),
+                cachedPercent: cachedPercent.toFixed(1),
+                freePercent: (100 - usedPercent - cachedPercent).toFixed(1)
+            });
             
             const usedBar = document.getElementById('memBarUsed');
             const cachedBar = document.getElementById('memBarCached');
             
             if (usedBar) {
-                usedBar.style.width = usedPercent + '%';
+                usedBar.style.width = Math.min(100, Math.max(0, usedPercent)) + '%';
                 usedBar.style.background = this.getUsageColor(usedPercent);
             }
             
             if (cachedBar) {
-                cachedBar.style.width = cachedPercent + '%';
+                cachedBar.style.width = Math.min(100, Math.max(0, cachedPercent)) + '%';
                 cachedBar.style.left = usedPercent + '%';
             }
+            
+            // Обновляем метки
+            const barLabels = document.querySelector('.bar-labels');
+            if (barLabels) {
+                const freePercent = 100 - usedPercent - cachedPercent;
+                barLabels.innerHTML = `
+                    <span>Used ${usedPercent.toFixed(1)}%</span>
+                    <span>Cached ${cachedPercent.toFixed(1)}%</span>
+                    <span>Free ${freePercent.toFixed(1)}%</span>
+                `;
+            }
+        }
+        
+        // Для демо-режима
+        if (!this.isOnline) {
+            this.addToLocalHistory('memory', memPercentage);
         }
     }
 
