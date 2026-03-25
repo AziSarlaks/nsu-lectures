@@ -1,0 +1,1 @@
+cl integerset.c /LD /O2 /Feintegerset.dll /link /EXPORT:CreateSet /EXPORT:IsInSet

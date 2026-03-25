@@ -1,0 +1,1 @@
+gcc -O2 -o checked_solution main.c matrixsqr.c -L. -lopenblas -Wl,-rpath=.

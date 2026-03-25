@@ -1,0 +1,1 @@
+cl /O2 /Fechecked_solution.exe main.c matrixsqr.c /link /LIBPATH:. libopenblas.lib

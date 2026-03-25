@@ -1,0 +1,1 @@
+gcc -shared -o hashmap.dll hashmap.c -Wl,--out-implib,hashmap.lib -DHASHMAP_EXPORTS
