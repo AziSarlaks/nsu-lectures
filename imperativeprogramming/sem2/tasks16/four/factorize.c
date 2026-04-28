@@ -1,5 +1,3 @@
-#include <math.h>
-
 typedef struct Factors {
     int k;
     int primes[32];
@@ -11,18 +9,22 @@ void Factorize(int X, Factors *res) {
     if (X == 1) return;
 
     int n = X;
-    for (int p = 2; p * p <= n; p++) {
+    int p = 2;
+    
+    while (p * p <= n) {
         if (n % p == 0) {
-            int count = 0;
+            int cnt = 0;
             while (n % p == 0) {
                 n /= p;
-                count++;
+                cnt++;
             }
             res->primes[res->k] = p;
-            res->powers[res->k] = count;
+            res->powers[res->k] = cnt;
             res->k++;
         }
+        p++;
     }
+    
     if (n > 1) {
         res->primes[res->k] = n;
         res->powers[res->k] = 1;

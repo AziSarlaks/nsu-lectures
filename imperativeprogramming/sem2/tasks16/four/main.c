@@ -1,5 +1,3 @@
-#include <stdio.h>
-
 typedef struct Factors {
     int k;
     int primes[32];
@@ -8,16 +6,16 @@ typedef struct Factors {
 
 void Factorize(int X, Factors *res);
 
-int main() {
-    freopen("input.txt", "r", stdin);
-    freopen("output.txt", "w", stdout);
+int scanf(const char *fmt, ...);
+int printf(const char *fmt, ...);
 
+int main() {
     int M;
-    fscanf(stdin, "%d", &M);
+    scanf("%d", &M); 
 
     for (int i = 0; i < M; i++) {
         int X;
-        fscanf(stdin, "%d", &X);
+        scanf("%d", &X);
         Factors f;
         Factorize(X, &f);
 
@@ -33,7 +31,5 @@ int main() {
         }
     }
 
-    fclose(stdin);
-    fclose(stdout);
     return 0;
 }

@@ -6,6 +6,20 @@ void cblas_dgemm(const int layout, const int transa, const int transb,
                  const double alpha, const double *a, const int lda,
                  const double *b, const int ldb,
                  const double beta, double *c, const int ldc)
+// const int layout - CblasRowMajor (построчно) или CblasColMajor (постолбцово)
+// const int transa - CblasNoTrans или CblasTrans (транспонировать A)
+// const int transb - CblasNoTrans или CblasTrans (транспонировать B)
+// const int m - количество строк в A и C
+// const int n - количество столбцов в B и C
+// const int k - количество столбцов в A и строк в B
+// const double alpha - множитель для произведения
+// const double *a - матрица A (размер m×k)
+// const int lda - ведущая размерность A (шаг между строками)
+// const double *b - матрица B (размер k×n)
+// const int ldb - ведущая размерность B
+// const double beta - множитель для C
+// double *c - матрица C (размер m×n)
+// const int ldc - ведущая размерность C
 {
 
     if (layout != CblasRowMajor)

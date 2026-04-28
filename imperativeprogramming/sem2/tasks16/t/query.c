@@ -1,4 +1,4 @@
-#include <stdint.h>
+typedef long long int64_t;
 
 extern int len;
 int64_t Sum(int l, int r);
